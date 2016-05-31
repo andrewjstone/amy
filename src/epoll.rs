@@ -84,7 +84,7 @@ impl Registrar {
     ///
     /// NOTE: THIS ONLY WORKS ON 64-BIT ARCHITECTURES
     ///
-    pub fn register<T>(&mut self, sock: Socket, event: Event, user_data: T) -> Result<()> {
+    pub fn register<T>(&self, sock: Socket, event: Event, user_data: T) -> Result<()> {
         let sock_fd = sock.as_raw_fd();
         let registration = Box::new(Registration::new(sock, user_data));
 

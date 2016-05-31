@@ -1,5 +1,6 @@
 use socket::Socket;
 
+#[derive(Debug)]
 pub struct Registration<T> {
     pub socket: Socket,
     pub user_data: T

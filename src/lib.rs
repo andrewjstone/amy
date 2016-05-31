@@ -15,10 +15,3 @@ pub use socket::Socket;
 pub use registration::Registration;
 pub use event::Event;
 pub use notification::Notification;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-    }
-}
