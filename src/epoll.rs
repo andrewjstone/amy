@@ -1,12 +1,15 @@
-use std::collections::HashMap;
 use std::os::unix::io::RawFd;
+use std::slice;
+use std::mem;
 use nix::sys::epoll::*;
-use nix::{Error, Result};
+use nix::Result;
 
 use socket::Socket;
 use event::Event;
+use notification::Notification;
+use registration::Registration;
 
-static EPOLL_EVENT_SIZE: u64 = 1024;
+static EPOLL_EVENT_SIZE: usize = 1024;
 
 pub struct Poller {
     epfd: RawFd,
@@ -17,11 +20,15 @@ pub struct Poller {
 impl Poller {
     pub fn new() -> Result<Poller> {
         let epfd = try!(epoll_create());
-        Poller {
+        Ok(Poller {
             epfd: epfd,
             registrar: Registrar::new(epfd),
             events: Vec::with_capacity(EPOLL_EVENT_SIZE)
-        }
+        })
+    }
+
+    pub fn get_registrar(&self) -> Registrar {
+        self.registrar.clone()
     }
 
     /// Wait for epoll events. Return a list of notifications. Notifications contain user data
@@ -38,7 +45,7 @@ impl Poller {
         // Set the length of the vector to what was filled in by the call to epoll_wait
         unsafe { self.events.set_len(count); }
 
-        Ok(self.events.map(|e| {
+        Ok(self.events.iter().map(|e| {
             let registration = unsafe {
                let registration_ptr: *mut Registration<T> = mem::transmute(e.data);
                Box::from_raw(registration_ptr)
@@ -48,7 +55,7 @@ impl Poller {
                 event: event_from_kind(e.events),
                 registration: registration
             }
-        }))
+        }).collect())
     }
 
 }
@@ -58,7 +65,6 @@ pub struct Registrar {
     epfd: RawFd
 }
 
-#[derive(Debug, Clone)]
 impl Registrar {
     fn new(epfd: RawFd) -> Registrar {
         Registrar {
@@ -79,6 +85,7 @@ impl Registrar {
     /// NOTE: THIS ONLY WORKS ON 64-BIT ARCHITECTURES
     ///
     pub fn register<T>(&mut self, sock: Socket, event: Event, user_data: T) -> Result<()> {
+        let sock_fd = sock.as_raw_fd();
         let registration = Box::new(Registration::new(sock, user_data));
 
         let registration_ptr: u64 = unsafe {
@@ -90,14 +97,14 @@ impl Registrar {
             data: registration_ptr
         };
 
-        epoll_ctl(self.epfd, EpollOpt::EpollCtlAdd, sock.as_raw_fd(), &info)
+        epoll_ctl(self.epfd, EpollOp::EpollCtlAdd, sock_fd, &info)
     }
 }
 
 fn event_from_kind(kind: EpollEventKind) -> Event {
     let mut event = Event::Read;
     if kind.contains(EPOLLIN) && kind.contains(EPOLLOUT) {
-        event = Event::BOTH;
+        event = Event::Both;
     } else if kind.contains(EPOLLOUT) {
         event = Event::Write;
     }
