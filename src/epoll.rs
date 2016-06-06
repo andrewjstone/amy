@@ -19,7 +19,7 @@ pub struct Poller<T> {
 }
 
 impl<T> Poller<T> {
-    pub fn new() -> Result<Poller> {
+    pub fn new() -> Result<Poller<T>> {
         let epfd = try!(epoll_create());
         Ok(Poller {
             epfd: epfd,
@@ -28,7 +28,7 @@ impl<T> Poller<T> {
         })
     }
 
-    pub fn get_registrar(&self) -> Registrar {
+    pub fn get_registrar(&self) -> Registrar<T> {
         self.registrar.clone()
     }
 
@@ -62,7 +62,7 @@ impl<T> Poller<T> {
 }
 
 #[derive(Debug)]
-pub struct Registrar {
+pub struct Registrar<T> {
     epfd: RawFd,
 
     // We use PhantomData here so that this type logically requires being tied to type T.
@@ -83,9 +83,10 @@ impl<T> Clone for Registrar<T> {
 }
 
 impl<T> Registrar<T> {
-    fn new(epfd: RawFd) -> Registrar {
+    fn new(epfd: RawFd) -> Registrar<T> {
         Registrar {
-            epfd: epfd
+            epfd: epfd,
+            phantom: PhantomData
         }
     }
 
@@ -101,7 +102,7 @@ impl<T> Registrar<T> {
     ///
     /// NOTE: THIS ONLY WORKS ON 64-BIT ARCHITECTURES
     ///
-    pub fn register<T>(&self, sock: Socket, event: Event, user_data: T) -> Result<()> {
+    pub fn register(&self, sock: Socket, event: Event, user_data: T) -> Result<()> {
         let sock_fd = sock.as_raw_fd();
         let registration = Box::new(Registration::new(sock, event.clone(), user_data));
 
