@@ -1,6 +1,7 @@
 use std::os::unix::io::RawFd;
 use std::slice;
 use std::mem;
+use std::marker::PhantomData;
 use nix::sys::epoll::*;
 use nix::Result;
 
@@ -11,13 +12,13 @@ use registration::Registration;
 
 static EPOLL_EVENT_SIZE: usize = 1024;
 
-pub struct Poller {
+pub struct Poller<T> {
     epfd: RawFd,
-    registrar: Registrar,
+    registrar: Registrar<T>,
     events: Vec<EpollEvent>
 }
 
-impl Poller {
+impl<T> Poller<T> {
     pub fn new() -> Result<Poller> {
         let epfd = try!(epoll_create());
         Ok(Poller {
@@ -33,14 +34,14 @@ impl Poller {
 
     /// Wait for epoll events. Return a list of notifications. Notifications contain user data
     /// registered with epoll_ctl which is extracted from the data member returned from epoll_wait.
-    pub fn wait<T>(&mut self, timeout_ms: isize) -> Result<Vec<Notification<T>>> {
+    pub fn wait(&mut self, timeout_ms: usize) -> Result<Vec<Notification<T>>> {
 
         // Create a buffer to read events into
         let dst = unsafe {
             slice::from_raw_parts_mut(self.events.as_mut_ptr(), self.events.capacity())
         };
 
-        let count = try!(epoll_wait(self.epfd, dst, timeout_ms));
+        let count = try!(epoll_wait(self.epfd, dst, timeout_ms as isize));
 
         // Set the length of the vector to what was filled in by the call to epoll_wait
         unsafe { self.events.set_len(count); }
@@ -60,12 +61,28 @@ impl Poller {
 
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Registrar {
-    epfd: RawFd
+    epfd: RawFd,
+
+    // We use PhantomData here so that this type logically requires being tied to type T.
+    // Since the Registrar is tied to the Poller, which stores data of type T, we want to ensure
+    // that when we register data, we only register data of type T.
+    // See https://doc.rust-lang.org/std/marker/struct.PhantomData.html#unused-type-parameters
+    phantom: PhantomData<T>
 }
 
-impl Registrar {
+
+impl<T> Clone for Registrar<T> {
+    fn clone(&self) -> Registrar<T> {
+        Registrar {
+            epfd: self.epfd.clone(),
+            phantom: PhantomData
+        }
+    }
+}
+
+impl<T> Registrar<T> {
     fn new(epfd: RawFd) -> Registrar {
         Registrar {
             epfd: epfd
@@ -86,7 +103,7 @@ impl Registrar {
     ///
     pub fn register<T>(&self, sock: Socket, event: Event, user_data: T) -> Result<()> {
         let sock_fd = sock.as_raw_fd();
-        let registration = Box::new(Registration::new(sock, user_data));
+        let registration = Box::new(Registration::new(sock, event.clone(), user_data));
 
         let registration_ptr: u64 = unsafe {
             mem::transmute(Box::into_raw(registration))
