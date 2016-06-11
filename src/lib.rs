@@ -5,6 +5,7 @@ mod socket;
 mod registration;
 mod event;
 mod notification;
+mod line_reader;
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 mod epoll;
@@ -26,3 +27,4 @@ pub use socket::Socket;
 pub use registration::Registration;
 pub use event::Event;
 pub use notification::Notification;
+pub use line_reader::LineReader;
