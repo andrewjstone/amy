@@ -1,6 +1,7 @@
 use std::io::{self, Read};
 use std::str::{self, Utf8Error};
 
+#[derive(Debug)]
 struct ReaderBuf {
     vec: Vec<u8>,
     msg_start: usize,
@@ -68,6 +69,7 @@ impl<'a> Iterator for Iter<'a> {
 }
 
 /// Read and compose lines of text
+#[derive(Debug)]
 pub struct LineReader {
     buf: ReaderBuf
 }
