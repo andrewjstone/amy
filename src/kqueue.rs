@@ -5,6 +5,7 @@ use std::mem;
 use std::marker::PhantomData;
 use nix::sys::event::{kqueue, kevent, KEvent, EventFilter, FilterFlag};
 use nix::sys::event::{EV_DELETE, EV_ADD, EV_ONESHOT};
+use nix::Errno::ENOENT;
 use libc::uintptr_t;
 use nix::Result;
 
@@ -108,6 +109,27 @@ impl<T> Poller<T> {
         kevent(self.kqueue, &self.deletions, &mut[], 0)
     }
 
+    // TODO: I'd like to configure this for tests only, but it doesn't compile properly
+    // #[cfg(test)]
+    // This is an abstracted helper function for tests that ensures that the socket is no longer
+    // registered with kqueue.
+    pub fn assert_fail_to_delete(&self, socket: Socket) {
+        let read_ev = KEvent {
+            ident: socket.as_raw_fd() as uintptr_t,
+            filter: EventFilter::EVFILT_READ,
+            flags: EV_DELETE,
+            fflags: FilterFlag::empty(),
+            data: 0,
+            udata: 0
+        };
+
+        let write_ev = KEvent { filter: EventFilter::EVFILT_WRITE, .. read_ev};
+
+        let res = kevent(self.kqueue, &vec![read_ev], &mut[], 0);
+        assert_eq!(ENOENT, res.unwrap_err().errno());
+        let res = kevent(self.kqueue, &vec![write_ev], &mut[], 0);
+        assert_eq!(ENOENT, res.unwrap_err().errno());
+    }
 }
 
 
