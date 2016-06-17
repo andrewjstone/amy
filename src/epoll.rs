@@ -13,16 +13,16 @@ use registration::Registration;
 
 static EPOLL_EVENT_SIZE: usize = 1024;
 
-pub struct Poller<T> {
+pub struct KernelPoller<T> {
     epfd: RawFd,
     registrar: Registrar<T>,
     events: Vec<EpollEvent>
 }
 
-impl<T> Poller<T> {
-    pub fn new() -> Result<Poller<T>> {
+impl<T> KernelPoller<T> {
+    pub fn new() -> Result<KernelPoller<T>> {
         let epfd = try!(epoll_create());
-        Ok(Poller {
+        Ok(KernelPoller {
             epfd: epfd,
             registrar: Registrar::new(epfd),
             events: Vec::with_capacity(EPOLL_EVENT_SIZE)
@@ -90,7 +90,7 @@ pub struct Registrar<T> {
     epfd: RawFd,
 
     // We use PhantomData here so that this type logically requires being tied to type T.
-    // Since the Registrar is tied to the Poller, which stores data of type T, we want to ensure
+    // Since the Registrar is tied to the KernelPoller, which stores data of type T, we want to ensure
     // that when we register data, we only register data of type T.
     // See https://doc.rust-lang.org/std/marker/struct.PhantomData.html#unused-type-parameters
     phantom: PhantomData<T>
