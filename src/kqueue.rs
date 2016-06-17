@@ -22,34 +22,34 @@ type UserData = intptr_t;
 
 static KQUEUE_EVENT_SIZE: usize = 1024;
 
-pub struct Poller<T> {
+pub struct KernelPoller<T> {
     kqueue: RawFd,
-    registrar: Registrar<T>,
+    registrar: KernelRegistrar<T>,
     eventlist: Vec<KEvent>,
     notifications: HashMap<RawFd, Notification<T>>,
     deletions: Vec<KEvent>
 }
 
-impl<T> Poller<T> {
-    pub fn new() -> Result<Poller<T>> {
+impl<T> KernelPoller<T> {
+    pub fn new() -> Result<KernelPoller<T>> {
         let kq = try!(kqueue());
-        Ok(Poller {
+        Ok(KernelPoller {
             kqueue: kq,
-            registrar: Registrar::new(kq),
+            registrar: KernelRegistrar::new(kq),
             eventlist: Vec::with_capacity(KQUEUE_EVENT_SIZE),
             notifications: HashMap::with_capacity(KQUEUE_EVENT_SIZE),
             deletions: Vec::with_capacity(KQUEUE_EVENT_SIZE)
         })
     }
 
-    pub fn get_registrar(&self) -> Registrar<T> {
+    pub fn get_registrar(&self) -> KernelRegistrar<T> {
         self.registrar.clone()
     }
 
-    /// Wait for kevents and return a list of Notifications. Coalesce reads and writes for the same
-    /// socket into a single notification. If only a read or a write event for a given socket is
-    /// present in the eventlist, check the registration to see if there is another kevent registered
-    /// and remove it if so. We do this removal to prevent aliasing a pointer to the same registration    /// structure.
+    // Wait for kevents and return a list of Notifications. Coalesce reads and writes for the same
+    // socket into a single notification. If only a read or a write event for a given socket is
+    // present in the eventlist, check the registration to see if there is another kevent registered
+    // and remove it if so. We do this removal to prevent aliasing a pointer to the same registration      // structure.
     pub fn wait(&mut self, timeout_ms: usize) -> Result<Vec<Notification<T>>> {
 
         // Create a buffer to read events into
@@ -68,7 +68,7 @@ impl<T> Poller<T> {
         Ok(self.notifications.drain().map(|(_, v)| v).collect())
     }
 
-    /// Combine read and write events for the same socket into a single notification.
+    // Combine read and write events for the same socket into a single notification.
     fn coalesce_events(&mut self) {
         for e in self.eventlist.drain(..) {
             let registration = unsafe {
@@ -134,51 +134,50 @@ impl<T> Poller<T> {
 
 
 #[derive(Debug)]
-pub struct Registrar<T> {
+pub struct KernelRegistrar<T> {
     kqueue: RawFd,
 
     // We use PhantomData here so that this type logically requires being tied to type T.
-    // Since the Registrar is tied to the Poller, which stores data of type T, we want to ensure
+    // Since the KernelRegistrar is tied to the KernelPoller, which stores data of type T, we want to ensure
     // that when we register data, we only register data of type T.
     // See https://doc.rust-lang.org/std/marker/struct.PhantomData.html#unused-type-parameters
     phantom: PhantomData<T>
 }
 
-impl<T> Clone for Registrar<T> {
-    fn clone(&self) -> Registrar<T> {
-        Registrar {
+impl<T> Clone for KernelRegistrar<T> {
+    fn clone(&self) -> KernelRegistrar<T> {
+        KernelRegistrar {
             kqueue: self.kqueue.clone(),
             phantom: PhantomData
         }
     }
 }
 
-impl<T> Registrar<T> {
-    /// Explicitly not public. Registrar's are tied to Pollers and are retreived via calls to
-    /// poller.get_registrar().
-    fn new(kq: RawFd) -> Registrar<T> {
-        Registrar {
+impl<T> KernelRegistrar<T> {
+    // Explicitly not public. KernelRegistrar's are tied to KernelPollers and are retreived via
+    // calls to poller.get_registrar().
+    fn new(kq: RawFd) -> KernelRegistrar<T> {
+        KernelRegistrar {
             kqueue: kq,
             phantom: PhantomData
         }
     }
 
-    /// Allocate a Registration containing a Socket and user data of type T on the heap.
-    /// Cast the pointer to this object to a UserData so it can be placed in a KEvent and passed to
-    /// the kernel with a call to `kevent`. This pointer will be returned from `kevent` when
-    /// the socket is ready to be used.
-    ///
-    /// Note that because reads and writes are separate events, the user_data pointer will be aliased
-    /// if both reads and writes are registered at the same time. In order to prevent this from
-    /// being dangerous, we must ensure that the user_data is not aliased when it is returned to the
-    /// caller of Poller::wait(). If both EVFILT_READ and EVFILT_WRITE are enabled on the same socket, but
-    /// only one of them is triggered in the call to kevent made in Poller::wait(), then the
-    /// untriggered event will be removed immediately by a call to kevent so that we don't have 2
-    /// aliases to the same application state being managed independently. Note, that in the case
-    /// that both events are triggered, they are simply coalesced into a single event, and are
-    /// already removed from kqueue because of the use of EV_ONESHOT. Therefore this scenario is not
-    /// a problem.
-    ///
+    // Allocate a Registration containing a Socket and user data of type T on the heap.
+    // Cast the pointer to this object to a UserData so it can be placed in a KEvent and passed to
+    // the kernel with a call to `kevent`. This pointer will be returned from `kevent` when
+    // the socket is ready to be used.
+    //
+    // Note that because reads and writes are separate events, the user_data pointer will be aliased
+    // if both reads and writes are registered at the same time. In order to prevent this from //
+    // being dangerous, we must ensure that the user_data is not aliased when it is returned to the
+    // caller of KernelPoller::wait(). If both EVFILT_READ and EVFILT_WRITE are enabled on the same
+    // socket, but only one of them is triggered in the call to kevent made in
+    // KernelPoller::wait(), then the untriggered event will be removed immediately by a call to
+    // kevent so that we don't have 2 aliases to the same application state being managed
+    // independently. Note, that in the case that both events are triggered, they are simply
+    // coalesced into a single event, and are already removed from kqueue because of the use of
+    // EV_ONESHOT. Therefore this scenario is not a problem.
     pub fn register(&self, sock: Socket, event: Event, user_data: T) -> Result<()> {
         let sock_fd = sock.as_raw_fd();
         let registration = Box::new(Registration::new(sock, event.clone(), user_data));
@@ -209,9 +208,9 @@ fn opposite_filter_from_event(event: &Event) -> EventFilter {
     }
 }
 
-/// Each event in kqueue must have its own filter. In other words, there are seperate events for
-/// reads and writes on the same socket. We create the proper number of KEvents based on the enum
-/// variant in the `event` paramter.
+// Each event in kqueue must have its own filter. In other words, there are seperate events for
+// reads and writes on the same socket. We create the proper number of KEvents based on the enum
+// variant in the `event` paramter.
 fn make_changelist(sock_fd: RawFd, event: Event, user_data: UserData) -> Vec<KEvent> {
     let mut ev = KEvent {
         ident: sock_fd as uintptr_t,
