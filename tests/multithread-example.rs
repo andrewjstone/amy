@@ -39,6 +39,8 @@ fn primary_example() {
     let registrar = poller.get_registrar();
     let (tx, rx) = channel();
 
+    listen(&poller.get_registrar());
+
     let h1 = thread::spawn(move || {
         run_worker(registrar, rx);
     });
@@ -56,13 +58,10 @@ fn primary_example() {
     }
 }
 
-/// This thread runs the poller and forwards notifications to a worker thread. Note that the listen
-/// socket is created and registered on this thread, as it's only used on this thread.
+/// This thread runs the poller and forwards notifications to a worker thread.
 fn run_poller(mut poller: Poller<Option<LineReader>>, tx: Sender<PollEvent>) {
-    let registrar = poller.get_registrar();
-    listen(&registrar);
 
-    // Wait for a connection, and ensure we get one
+    // Wait for a connection, and ensure we get one. We started listening in the main thread.
     let mut notifications = poller.wait(5000).unwrap();
     assert_eq!(1, notifications.len());
     let notification = notifications.pop().unwrap();

@@ -4,6 +4,7 @@ use std::mem;
 use std::marker::PhantomData;
 use nix::sys::epoll::*;
 use nix::Result;
+use nix::Errno::ENOENT;
 
 use socket::Socket;
 use event::Event;
@@ -52,11 +53,34 @@ impl<T> Poller<T> {
                Box::from_raw(registration_ptr)
             };
 
+            // Delete the fd from the epoll instance. Fail fast with unwrap cause something is
+            // seriously wrong, if this call fails.
+            self.delete_registration(registration.socket.as_raw_fd()).unwrap();
+
             Notification {
                 event: event_from_kind(e.events),
                 registration: registration
             }
         }).collect())
+    }
+
+    fn delete_registration(&self, sock: RawFd) -> Result<()> {
+        // info is unused by epoll on delete operations
+        let info = EpollEvent {
+            events: EpollEventKind::empty(),
+            data: 0
+        };
+
+        epoll_ctl(self.epfd, EpollOp::EpollCtlDel, sock, &info)
+    }
+
+    // TODO: I'd like to configure this for tests only, but it doesn't compile properly
+    // #[cfg(test)]
+    // This is an abstracted helper function for tests that ensures that the socket is no longer
+    // registered with epoll.
+    pub fn assert_fail_to_delete(&self, socket: Socket) {
+        let res = self.delete_registration(socket.as_raw_fd());
+        assert_eq!(ENOENT, res.unwrap_err().errno());
     }
 
 }
