@@ -1,3 +1,20 @@
+### Usage
+
+Add the following to your `Cargo.toml`
+
+```toml
+[dependencies]
+amy = "0.1"
+```
+
+Add this to your crate root
+
+```rust
+extern crate amy;
+```
+
+### Introduction
+
 Amy is an opinionated library that wraps Kqueue and Epoll to provide platform independent polling
 and registration abstractions useful for multithreaded asynchronous network programming. The main
 goal of Amy is to allow polling and registration of non-blocking socket FDs to take place on
@@ -29,21 +46,6 @@ provides helper modules to coalesce data being read off a socket and decode the 
 messages. The messages are accessible via an iterator to make usage easier. Currently, there exists
 only one of these [helpers](https://github.com/andrewjstone/amy/blob/master/src/line_reader.rs)
 (for line separated text), but more are in the works.
-
-### Usage
-
-Add the following to your `Cargo.toml`
-
-```toml
-[dependencies]
-amy = "0.1"
-```
-
-Add this to your crate root
-
-```rust
-extern crate amy;
-```
 
 ### How is this different from Mio
 
