@@ -3,7 +3,7 @@ use socket::Socket;
 use event::Event;
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
-use epoll::KernelRegistar;
+use epoll::KernelRegistrar;
 
 #[cfg(any(target_os = "bitrig", target_os = "dragonfly",
           target_os = "freebsd", target_os = "ios", target_os = "macos",

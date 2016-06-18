@@ -15,7 +15,7 @@ static EPOLL_EVENT_SIZE: usize = 1024;
 
 pub struct KernelPoller<T> {
     epfd: RawFd,
-    registrar: Registrar<T>,
+    registrar: KernelRegistrar<T>,
     events: Vec<EpollEvent>
 }
 
@@ -24,12 +24,12 @@ impl<T> KernelPoller<T> {
         let epfd = try!(epoll_create());
         Ok(KernelPoller {
             epfd: epfd,
-            registrar: Registrar::new(epfd),
+            registrar: KernelRegistrar::new(epfd),
             events: Vec::with_capacity(EPOLL_EVENT_SIZE)
         })
     }
 
-    pub fn get_registrar(&self) -> Registrar<T> {
+    pub fn get_registrar(&self) -> KernelRegistrar<T> {
         self.registrar.clone()
     }
 
@@ -86,29 +86,29 @@ impl<T> KernelPoller<T> {
 }
 
 #[derive(Debug)]
-pub struct Registrar<T> {
+pub struct KernelRegistrar<T> {
     epfd: RawFd,
 
     // We use PhantomData here so that this type logically requires being tied to type T.
-    // Since the Registrar is tied to the KernelPoller, which stores data of type T, we want to ensure
+    // Since the KernelRegistrar is tied to the KernelPoller, which stores data of type T, we want to ensure
     // that when we register data, we only register data of type T.
     // See https://doc.rust-lang.org/std/marker/struct.PhantomData.html#unused-type-parameters
     phantom: PhantomData<T>
 }
 
 
-impl<T> Clone for Registrar<T> {
-    fn clone(&self) -> Registrar<T> {
-        Registrar {
+impl<T> Clone for KernelRegistrar<T> {
+    fn clone(&self) -> KernelRegistrar<T> {
+        KernelRegistrar {
             epfd: self.epfd.clone(),
             phantom: PhantomData
         }
     }
 }
 
-impl<T> Registrar<T> {
-    fn new(epfd: RawFd) -> Registrar<T> {
-        Registrar {
+impl<T> KernelRegistrar<T> {
+    fn new(epfd: RawFd) -> KernelRegistrar<T> {
+        KernelRegistrar {
             epfd: epfd,
             phantom: PhantomData
         }
