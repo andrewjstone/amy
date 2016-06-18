@@ -2,6 +2,9 @@
 name = "amy"
 version = "0.1.0"
 authors = ["Andrew J. Stone <andrew.j.stone.1@gmail.com>"]
+description = "Polling and Registration abstractions around kqueue and epoll for multithreaded async network programming"
+repository = "https://github.com/andrewjstone/amy"
+license = "Apache-2.0"
 
 [dependencies]
 nix = "0.5.0"
