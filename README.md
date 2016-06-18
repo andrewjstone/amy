@@ -1,3 +1,6 @@
+[![Build
+Status](https://travis-ci.org/andrewjstone/amy.svg?branch=master)](https://travis-ci.org/andrewjstone/amy)
+
 ### Usage
 
 Add the following to your `Cargo.toml`
