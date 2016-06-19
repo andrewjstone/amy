@@ -1,6 +1,8 @@
 [![Build
 Status](https://travis-ci.org/andrewjstone/amy.svg?branch=master)](https://travis-ci.org/andrewjstone/amy)
 
+[API Documentation](https://crates.fyi/crates/amy/0.1.0/)
+
 ### Usage
 
 Add the following to your `Cargo.toml`
