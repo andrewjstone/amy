@@ -6,6 +6,7 @@ mod registration;
 mod event;
 mod notification;
 mod line_reader;
+mod frame_reader;
 mod poller;
 mod registrar;
 
@@ -25,3 +26,4 @@ pub use registration::Registration;
 pub use event::Event;
 pub use notification::Notification;
 pub use line_reader::LineReader;
+pub use frame_reader::FrameReader;
