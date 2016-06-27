@@ -9,6 +9,7 @@ mod line_reader;
 mod frame_reader;
 mod poller;
 mod registrar;
+mod handle;
 
 pub use poller::Poller;
 pub use registrar::Registrar;
@@ -27,3 +28,4 @@ pub use event::Event;
 pub use notification::Notification;
 pub use line_reader::LineReader;
 pub use frame_reader::FrameReader;
+pub use handle::Handle;

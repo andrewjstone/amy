@@ -1,3 +1,5 @@
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use socket::Socket;
 use event::Event;
 
@@ -5,7 +7,7 @@ use event::Event;
 pub struct Registration<T> {
     pub socket: Socket,
     pub event: Event,
-    pub user_data: T
+    pub user_data: T,
 }
 
 impl<T> Registration<T> {
@@ -17,3 +19,14 @@ impl<T> Registration<T> {
         }
     }
 }
+
+/// Data registered with the kernel poller
+#[derive(Debug)]
+pub struct UserData<T> {
+    pub valid_registration: Arc<AtomicBool>,
+    pub registration_ptr: *mut Registration<T>
+}
+
+// This is necessary because raw pointers are not `Send`. However, the rest of the code ensures
+// safety via atomics.
+unsafe impl<T> Send for UserData<T> where T: Send {}

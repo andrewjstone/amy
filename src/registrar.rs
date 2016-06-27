@@ -1,6 +1,7 @@
 use nix::Result;
 use socket::Socket;
 use event::Event;
+use handle::Handle;
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use epoll::KernelRegistrar;
@@ -32,8 +33,25 @@ impl<T> Registrar<T> {
     /// Register a socket and aribtrary user data for a given event type, with a Poller.
     ///
     /// Note that only a single type of user data can be used with a given Poller/Registrar pair.
-    pub fn register(&self, sock: Socket, event: Event, user_data: T) -> Result<()> {
+    pub fn register(&self, sock: Socket, event: Event, user_data: T) -> Result<Handle<T>> {
         self.inner.register(sock, event, user_data)
+    }
+
+    /// Re-register a socket with a different event type given it's handle.
+    ///
+    /// If re_register returns None, it means that the event was triggered by the
+    /// poller and a notification is in flight. If `Some(Err(_))` is returned then a call to the
+    /// kernel poller failed. Otherwise the re-registration was successful and we get
+    /// `Some(Ok(handle))`.
+    pub fn reregister(&mut self, handle: Handle<T>, event: Event) -> Option<Result<Handle<T>>> {
+        self.inner.reregister(handle, event)
+    }
+
+    /// Delete a socket from the poller.
+    ///
+    /// None will be returned if the socket represented by the handle was not registered.
+    pub fn deregister(&mut self, handle: Handle<T>) -> Option<()> {
+        self.inner.deregister(handle)
     }
 }
 
