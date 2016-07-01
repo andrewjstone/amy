@@ -1,8 +1,8 @@
 use event::Event;
-use registration::Registration;
 
 #[derive(Debug)]
-pub struct Notification<T> {
-    pub event: Event,
-    pub registration: Box<Registration<T>>
+pub struct Notification {
+    // The unique identifier for a given socket. File descriptors can be re-used, Ids cannot.
+    pub id: usize,
+    pub event: Event
 }

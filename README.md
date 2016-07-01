@@ -30,27 +30,19 @@ The best way to get started writing your code with Amy is to take a look at the 
 example test](https://github.com/andrewjstone/amy/blob/master/tests/multithread-example.rs). It
 provides the canonical usage example, although is certainly not the only way to build your system.
 
-Amy allows attaching arbitrary data to socket file descriptors during registration, which gets
-returned when an event occurs on a given file descriptor. Since these FDs and their corresponding
-data structures can be registered from multiple threads, it is imperative that there is only one
-owner for each FD at a time. Either the FD is registered with the kernel, and the user data hidden
-behind a raw pointer, or it is owned by a boxed
-[Registration](https://github.com/andrewjstone/amy/blob/master/src/registration.rs) object. (Note
-that this object is not clone-able on purpose). In order to prevent aliasing of the FD and user data,
-because it is stored in the kernel waiting for events and also part of the registration structure
-returned to user land, we ensure that when an event notification occurs the socket is removed from
-the kernel poller. To do this, we mandate the use of `ONESHOT` polling and do not allow configuration
-of different polling modes. In kqueue, events registered as `ONESHOT` are automatically removed when
-fired, and in epoll we do this manually with another call to
-[`epoll_ctl`](http://man7.org/linux/man-pages/man2/epoll_ctl.2.html).
+On registration of a socket, Amy will return a unique ID for that socket. This id is to
+be used along with the socket when re-registering for new events. Ownership of the socket is never
+transfered to either the registrar or the poller. Only the raw file descriptor is copied from the
+socket when registering. On notification, the unique id and event type will be returned from the
+Poller.
 
-Another benefit of giving ownership of the socket FD to a registration object that is sendable
-across threads, is that reading, writing, and serialization can be performed directly on other
-threads, and never block the polling thread. In order to facilitate this mode of operation, Amy
-provides helper modules to coalesce data being read off a socket and decode the data into complete
-messages. The messages are accessible via an iterator to make usage easier. Currently, there exists
-only one of these [helpers](https://github.com/andrewjstone/amy/blob/master/src/line_reader.rs)
-(for line separated text), but more are in the works.
+A benefit of decoupling the Poller and Registrar is that the Poller thread never has to perform any
+serialization or reading/writing to the socket. It only has to poll for events and notify the owner
+of the socket that an event is ready. This can be done via a channel or other means. Any work
+needing to be done can be load balanced among threads by transfering ownership of the socket
+temporarily then re-registering as necessary. An additonal benefit is that there is no need to wake
+up the polling thread when registering a socket, because the polling thread isn't intended to
+perform registrations.
 
 ### How is this different from Mio
 
@@ -67,20 +59,15 @@ handler must use another channel, or channels, which are not managed by Mio.
 
 In contrast to this, Amy allows separation of the registration and polling functionality as
 described above. However, Amy also requires a channel, or channels, managed by the user to forward
-Notifications from the polling thread to other threads as necessary. Amy also allows registration of
-arbitrary data and not just tokens.
+Notifications from the polling thread to other threads as necessary. It's not clear whether one will
+provide better performance than the other as it depends on usage patterns in a real world scenario.
 
-At this point, it may seem like using Amy is the obvious choice, but to be fair, there are a few
-things Mio does that Amy does not. Mio provides timers, works on Windows, performs no allocations,
-allows choice of polling/triggering modes, and is a more mature solution used by many other Rust
-projects. Mio is also a much larger, more ambitious project with many more lines of code. The choice
-is not that clear cut. To help decide which one to choose for your next project, below is a list of
-features and (subjective) use cases showing the reasons to choose either Mio or Amy.
+The choice to use Mio or Amy is not necessarily clear, so a short list of features is drawn below,
+along with some (subjective) use cases showing the reasons to choose either Mio or Amy.
 
 Choose Mio if you:
  * Need Windows support
  * Are writing a single threaded server
- * Want the absolute fastest single-threaded event loop with no allocations
  * Don't want a separate thread for a timer
  * Want to use the canonical Rust library for Async I/O
 
@@ -90,11 +77,6 @@ Choose Amy if you:
  * Want the simplest possible abstractions to make epoll and kqueue usable and Rusty
  * Want a small, easily auditable library, with little unsafe code
  * Are comfortable using something newer and less proven
-
-### TODO
- * Support UDP sockets
- * More reading/decoding helpers
- * Better docs
 
 ### Limitations
  * Only works on systems that implement epoll and kqueue (Linux, BSDs, Mac OSX, etc...)
