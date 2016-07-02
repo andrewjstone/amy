@@ -1,5 +1,5 @@
+use std::os::unix::io::AsRawFd;
 use nix::Result;
-use socket::Socket;
 use event::Event;
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -10,40 +10,45 @@ use epoll::KernelRegistrar;
           target_os = "netbsd", target_os = "openbsd"))]
 pub use kqueue::KernelRegistrar;
 
-#[derive(Debug)]
 /// An abstraction for registering file descriptors with a kernel poller
 ///
-/// A Registrar is tied to a Poller of the same type, and registers Sockets and user data that will
-/// then be waited on by the Poller. A Registar should only be retrieved via a call to
-/// Poller::get_registrar(&self), and not created on it's own.
-pub struct Registrar<T> {
-    inner: KernelRegistrar<T>
+/// A Registrar is tied to a Poller of the same type, and registers sockets and unique IDs for those
+/// sockets as userdata that can be waited on by the poller. A Registar should only be retrieved via
+/// a call to Poller::get_registrar(&self), and not created on it's own.
+#[derive(Debug, Clone)]
+pub struct Registrar {
+    inner: KernelRegistrar
 }
 
-impl<T> Registrar<T> {
+impl Registrar {
     /// This method is public only so it can be used directly by the Poller. Do not Use it.
     #[doc(hidden)]
-    pub fn new(inner: KernelRegistrar<T>) -> Registrar<T> {
+    pub fn new(inner: KernelRegistrar) -> Registrar {
         Registrar {
             inner: inner
         }
     }
 
-    /// Register a socket and aribtrary user data for a given event type, with a Poller.
+    /// Register a socket for a given event type, with a Poller and return it's unique ID
     ///
-    /// Note that only a single type of user data can be used with a given Poller/Registrar pair.
-    pub fn register(&self, sock: Socket, event: Event, user_data: T) -> Result<()> {
-        self.inner.register(sock, event, user_data)
-    }
-}
-
-//  We impl clone instead of deriving it because T is not cloneable. This works fine because T is
-//  PhantomData in the KernelRegistrar
-impl<T> Clone for Registrar<T> {
-    fn clone(&self) -> Registrar<T> {
-        Registrar {
-            inner: self.inner.clone()
-        }
+    /// Note that if the sock type is not pollable, then an error will be returned.
+    pub fn register<T: AsRawFd>(&self, sock: &T, event: Event) -> Result<usize> {
+        self.inner.register(sock, event)
     }
 
+    /// Reregister a socket with a Poller
+    pub fn reregister<T: AsRawFd>(&self, id: usize, sock: &T, event: Event) -> Result<()> {
+        self.inner.reregister(id, sock, event)
+    }
+
+    /// Remove a socket from a Poller
+    ///
+    /// Note that ownership of the socket is taken here. Sockets should only be deregistered when
+    /// the caller is done with them.
+    ///
+    /// Will return an error if the socket is not present in the poller when using epoll. Returns no
+    /// error with kqueue.
+    pub fn deregister<T: AsRawFd>(&self, sock: T) -> Result<()> {
+        self.inner.deregister(sock)
+    }
 }

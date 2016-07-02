@@ -1,18 +1,16 @@
 use std::os::unix::io::RawFd;
 use std::collections::HashMap;
 use std::slice;
-use std::mem;
-use std::marker::PhantomData;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::os::unix::io::AsRawFd;
 use nix::sys::event::{kqueue, kevent, KEvent, EventFilter, FilterFlag};
 use nix::sys::event::{EV_DELETE, EV_ADD, EV_ONESHOT};
-use nix::Errno::ENOENT;
 use libc::uintptr_t;
 use nix::Result;
 
-use socket::Socket;
 use event::Event;
 use notification::Notification;
-use registration::Registration;
 
 #[cfg(not(target_os = "netbsd"))]
 type UserData = usize;
@@ -22,27 +20,26 @@ type UserData = intptr_t;
 
 static KQUEUE_EVENT_SIZE: usize = 1024;
 
-pub struct KernelPoller<T> {
+pub struct KernelPoller {
     kqueue: RawFd,
-    registrar: KernelRegistrar<T>,
+    registrar: KernelRegistrar,
     eventlist: Vec<KEvent>,
-    notifications: HashMap<RawFd, Notification<T>>,
-    deletions: Vec<KEvent>
+    notifications: HashMap<RawFd, Notification>
 }
 
-impl<T> KernelPoller<T> {
-    pub fn new() -> Result<KernelPoller<T>> {
+impl KernelPoller {
+    pub fn new() -> Result<KernelPoller> {
         let kq = try!(kqueue());
+        let registrations = Arc::new(AtomicUsize::new(0));
         Ok(KernelPoller {
             kqueue: kq,
-            registrar: KernelRegistrar::new(kq),
+            registrar: KernelRegistrar::new(kq, registrations),
             eventlist: Vec::with_capacity(KQUEUE_EVENT_SIZE),
-            notifications: HashMap::with_capacity(KQUEUE_EVENT_SIZE),
-            deletions: Vec::with_capacity(KQUEUE_EVENT_SIZE)
+            notifications: HashMap::with_capacity(KQUEUE_EVENT_SIZE)
         })
     }
 
-    pub fn get_registrar(&self) -> KernelRegistrar<T> {
+    pub fn get_registrar(&self) -> KernelRegistrar {
         self.registrar.clone()
     }
 
@@ -50,7 +47,7 @@ impl<T> KernelPoller<T> {
     // socket into a single notification. If only a read or a write event for a given socket is
     // present in the eventlist, check the registration to see if there is another kevent registered
     // and remove it if so. We do this removal to prevent aliasing a pointer to the same registration      // structure.
-    pub fn wait(&mut self, timeout_ms: usize) -> Result<Vec<Notification<T>>> {
+    pub fn wait(&mut self, timeout_ms: usize) -> Result<Vec<Notification>> {
 
         // Create a buffer to read events into
         let dst = unsafe {
@@ -63,23 +60,16 @@ impl<T> KernelPoller<T> {
         unsafe { self.eventlist.set_len(count); }
 
         self.coalesce_events();
-        try!(self.remove_aliased_events());
-
         Ok(self.notifications.drain().map(|(_, v)| v).collect())
     }
 
     // Combine read and write events for the same socket into a single notification.
     fn coalesce_events(&mut self) {
         for e in self.eventlist.drain(..) {
-            let registration = unsafe {
-                let registration_ptr: *mut Registration<T> = mem::transmute(e.udata);
-                Box::from_raw(registration_ptr)
-            };
-
             let event = event_from_filter(e.filter);
             let new_notification = Notification {
-                event: event.clone(),
-                registration: registration
+                id: e.udata as usize,
+                event: event.clone()
             };
 
             let mut notification = self.notifications.entry(e.ident as RawFd)
@@ -89,105 +79,50 @@ impl<T> KernelPoller<T> {
             }
         }
     }
-
-    fn remove_aliased_events(&mut self) -> Result<usize>{
-        self.deletions.clear();
-        // TODO: Does this do an allocation or just put each collected value into the existing vec?
-        // It'd be a shame to have to call self.deletions.append().
-        self.deletions = self.notifications.iter().filter(|&(_, ref notification)| {
-            notification.registration.event != notification.event
-        }).map(|(&sock_fd, ref notification)| {
-            KEvent {
-                ident: sock_fd as uintptr_t,
-                filter: opposite_filter_from_event(&notification.event),
-                flags: EV_DELETE,
-                fflags: FilterFlag::empty(),
-                data: 0,
-                udata: 0
-            }
-        }).collect();
-        kevent(self.kqueue, &self.deletions, &mut[], 0)
-    }
-
-    // TODO: I'd like to configure this for tests only, but it doesn't compile properly
-    // #[cfg(test)]
-    // This is an abstracted helper function for tests that ensures that the socket is no longer
-    // registered with kqueue.
-    pub fn assert_fail_to_delete(&self, socket: Socket) {
-        let read_ev = KEvent {
-            ident: socket.as_raw_fd() as uintptr_t,
-            filter: EventFilter::EVFILT_READ,
-            flags: EV_DELETE,
-            fflags: FilterFlag::empty(),
-            data: 0,
-            udata: 0
-        };
-
-        let write_ev = KEvent { filter: EventFilter::EVFILT_WRITE, .. read_ev};
-
-        let res = kevent(self.kqueue, &vec![read_ev], &mut[], 0);
-        assert_eq!(ENOENT, res.unwrap_err().errno());
-        let res = kevent(self.kqueue, &vec![write_ev], &mut[], 0);
-        assert_eq!(ENOENT, res.unwrap_err().errno());
-    }
 }
 
 
-#[derive(Debug)]
-pub struct KernelRegistrar<T> {
+#[derive(Debug, Clone)]
+pub struct KernelRegistrar {
     kqueue: RawFd,
-
-    // We use PhantomData here so that this type logically requires being tied to type T.
-    // Since the KernelRegistrar is tied to the KernelPoller, which stores data of type T, we want to ensure
-    // that when we register data, we only register data of type T.
-    // See https://doc.rust-lang.org/std/marker/struct.PhantomData.html#unused-type-parameters
-    phantom: PhantomData<T>
+    total_registrations: Arc<AtomicUsize>
 }
 
-impl<T> Clone for KernelRegistrar<T> {
-    fn clone(&self) -> KernelRegistrar<T> {
-        KernelRegistrar {
-            kqueue: self.kqueue.clone(),
-            phantom: PhantomData
-        }
-    }
-}
-
-impl<T> KernelRegistrar<T> {
+impl KernelRegistrar {
     // Explicitly not public. KernelRegistrar's are tied to KernelPollers and are retreived via
     // calls to poller.get_registrar().
-    fn new(kq: RawFd) -> KernelRegistrar<T> {
+    fn new(kq: RawFd, registrations: Arc<AtomicUsize>) -> KernelRegistrar {
         KernelRegistrar {
             kqueue: kq,
-            phantom: PhantomData
+            total_registrations: registrations
         }
     }
 
-    // Allocate a Registration containing a Socket and user data of type T on the heap.
-    // Cast the pointer to this object to a UserData so it can be placed in a KEvent and passed to
-    // the kernel with a call to `kevent`. This pointer will be returned from `kevent` when
-    // the socket is ready to be used.
-    //
-    // Note that because reads and writes are separate events, the user_data pointer will be aliased
-    // if both reads and writes are registered at the same time. In order to prevent this from //
-    // being dangerous, we must ensure that the user_data is not aliased when it is returned to the
-    // caller of KernelPoller::wait(). If both EVFILT_READ and EVFILT_WRITE are enabled on the same
-    // socket, but only one of them is triggered in the call to kevent made in
-    // KernelPoller::wait(), then the untriggered event will be removed immediately by a call to
-    // kevent so that we don't have 2 aliases to the same application state being managed
-    // independently. Note, that in the case that both events are triggered, they are simply
-    // coalesced into a single event, and are already removed from kqueue because of the use of
-    // EV_ONESHOT. Therefore this scenario is not a problem.
-    pub fn register(&self, sock: Socket, event: Event, user_data: T) -> Result<()> {
+    pub fn register<T: AsRawFd>(&self, sock: &T, event: Event) -> Result<usize> {
         let sock_fd = sock.as_raw_fd();
-        let registration = Box::new(Registration::new(sock, event.clone(), user_data));
-
-        let user_data_ptr: UserData = unsafe {
-            mem::transmute(Box::into_raw(registration))
-        };
-
-        let changes = make_changelist(sock_fd, event, user_data_ptr);
+        let id = self.total_registrations.fetch_add(1, Ordering::SeqCst) + 1;
+        let changes = make_changelist(sock_fd, event, id as UserData);
         try!(kevent(self.kqueue, &changes, &mut[], 0));
+        Ok(id)
+    }
+
+    pub fn reregister<T: AsRawFd>(&self, id: usize, sock: &T, event: Event) -> Result<()> {
+        let sock_fd = sock.as_raw_fd();
+        let changes = make_changelist(sock_fd, event, id as UserData);
+        try!(kevent(self.kqueue, &changes, &mut[], 0));
+        Ok(())
+    }
+
+    pub fn deregister<T: AsRawFd>(&self, sock: T) -> Result<()> {
+        let sock_fd = sock.as_raw_fd();
+        let mut changes = make_changelist(sock_fd, Event::Both, 0);
+        for e in changes.iter_mut() {
+            e.flags = EV_DELETE
+        }
+        // Just ignore errors because, one of the events may not be present, but the deregister
+        // signature ignores that fact. At this point, ownership of the socket is taken so it's
+        // irrelevant anyway.
+        let _ = kevent(self.kqueue, &changes, &mut[], 0);
         Ok(())
     }
 }
@@ -197,14 +132,6 @@ fn event_from_filter(filter: EventFilter) -> Event {
         Event::Read
     } else {
         Event::Write
-    }
-}
-
-fn opposite_filter_from_event(event: &Event) -> EventFilter {
-    if *event == Event::Read {
-        EventFilter::EVFILT_WRITE
-    } else {
-        EventFilter::EVFILT_READ
     }
 }
 

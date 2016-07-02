@@ -1,8 +1,6 @@
 extern crate libc;
 extern crate nix;
 
-mod socket;
-mod registration;
 mod event;
 mod notification;
 mod line_reader;
@@ -21,8 +19,6 @@ mod epoll;
           target_os = "netbsd", target_os = "openbsd"))]
 mod kqueue;
 
-pub use socket::Socket;
-pub use registration::Registration;
 pub use event::Event;
 pub use notification::Notification;
 pub use line_reader::LineReader;
