@@ -9,7 +9,7 @@ Add the following to your `Cargo.toml`
 
 ```toml
 [dependencies]
-amy = "0.1"
+amy = "0.2"
 ```
 
 Add this to your crate root
