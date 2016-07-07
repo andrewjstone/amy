@@ -6,11 +6,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::os::unix::io::AsRawFd;
 use nix::sys::event::{kqueue, kevent, KEvent, EventFilter, FilterFlag};
 use nix::sys::event::{EV_DELETE, EV_ADD, EV_ONESHOT};
-use libc::uintptr_t;
+use libc::{uintptr_t, intptr_t};
 use nix::Result;
 
 use event::Event;
 use notification::Notification;
+use timer::Timer;
 
 #[cfg(not(target_os = "netbsd"))]
 type UserData = usize;
@@ -30,7 +31,7 @@ pub struct KernelPoller {
 impl KernelPoller {
     pub fn new() -> Result<KernelPoller> {
         let kq = try!(kqueue());
-        let registrations = Arc::new(AtomicUsize::new(0));
+        let registrations = Arc::new(AtomicUsize::new(1));
         Ok(KernelPoller {
             kqueue: kq,
             registrar: KernelRegistrar::new(kq, registrations),
@@ -100,7 +101,7 @@ impl KernelRegistrar {
 
     pub fn register<T: AsRawFd>(&self, sock: &T, event: Event) -> Result<usize> {
         let sock_fd = sock.as_raw_fd();
-        let id = self.total_registrations.fetch_add(1, Ordering::SeqCst) + 1;
+        let id = self.total_registrations.fetch_add(1, Ordering::SeqCst);
         let changes = make_changelist(sock_fd, event, id as UserData);
         try!(kevent(self.kqueue, &changes, &mut[], 0));
         Ok(id)
@@ -125,10 +126,33 @@ impl KernelRegistrar {
         let _ = kevent(self.kqueue, &changes, &mut[], 0);
         Ok(())
     }
+
+    pub fn set_timeout(&self, timeout: usize) -> Result<Timer> {
+        self.set_timer(timeout, false)
+    }
+
+    pub fn set_interval(&self, timeout: usize) -> Result<Timer> {
+        self.set_timer(timeout, true)
+    }
+
+    pub fn cancel_timeout(&self, timer: Timer) -> Result<()> {
+        let mut timer = make_timer(timer.get_id(), 0, false);
+        timer.flags = EV_DELETE;
+        try!(kevent(self.kqueue, &vec![timer], &mut[], 0));
+        Ok(())
+    }
+
+    fn set_timer(&self, timeout: usize, recurring: bool) -> Result<Timer> {
+        let id = self.total_registrations.fetch_add(1, Ordering::SeqCst);
+        let changes = vec![make_timer(id, timeout, recurring)];
+        try!(kevent(self.kqueue, &changes, &mut[], 0));
+        Ok(Timer {id: id, fd: 0})
+    }
 }
 
 fn event_from_filter(filter: EventFilter) -> Event {
-    if filter == EventFilter::EVFILT_READ {
+    // TODO: Change Event to allow returning TIMER events instead of marking them READ
+    if filter == EventFilter::EVFILT_READ || filter == EventFilter::EVFILT_TIMER {
         Event::Read
     } else {
         Event::Write
@@ -156,4 +180,19 @@ fn make_changelist(sock_fd: RawFd, event: Event, user_data: UserData) -> Vec<KEv
         },
         Event::Both => vec![ev, KEvent { filter: EventFilter::EVFILT_WRITE, .. ev }]
     }
+}
+
+fn make_timer(id: usize, timeout: usize, recurring: bool) -> KEvent {
+    let mut ev = KEvent {
+        ident: id as uintptr_t,
+        filter: EventFilter::EVFILT_TIMER,
+        flags: EV_ADD,
+        fflags: FilterFlag::empty(), // timeouts are in ms by default
+        data: timeout as intptr_t,
+        udata: id as UserData
+    };
+    if !recurring {
+        ev.flags = ev.flags | EV_ONESHOT
+    }
+    ev
 }
