@@ -1,6 +1,9 @@
 use std::os::unix::io::{RawFd, AsRawFd};
-use libc;
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
 use std::mem;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use libc;
 
 /// An opaque handle to a kernel timer instance.
 ///
