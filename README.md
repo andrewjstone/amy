@@ -1,7 +1,7 @@
 [![Build
 Status](https://travis-ci.org/andrewjstone/amy.svg?branch=master)](https://travis-ci.org/andrewjstone/amy)
 
-[API Documentation](https://crates.fyi/crates/amy/0.1.0/)
+[API Documentation](https://crates.fyi/crates/amy/0.3.0/)
 
 ### Usage
 
@@ -9,7 +9,7 @@ Add the following to your `Cargo.toml`
 
 ```toml
 [dependencies]
-amy = "0.2"
+amy = "0.3"
 ```
 
 Add this to your crate root
@@ -68,11 +68,10 @@ along with some (subjective) use cases showing the reasons to choose either Mio 
 Choose Mio if you:
  * Need Windows support
  * Are writing a single threaded server
- * Don't want a separate thread for a timer
  * Want to use the canonical Rust library for Async I/O
 
 Choose Amy if you:
- * Only need `*nix` support
+ * Only need `\*nix` support
  * Are writing a multi-threaded server
  * Want the simplest possible abstractions to make epoll and kqueue usable and Rusty
  * Want a small, easily auditable library, with little unsafe code

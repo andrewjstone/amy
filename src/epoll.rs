@@ -1,13 +1,15 @@
-use std::os::unix::io::RawFd;
+use std::os::unix::io::{RawFd, AsRawFd, IntoRawFd};
 use std::slice;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::os::unix::io::AsRawFd;
 use nix::sys::epoll::*;
 use nix::Result;
+use libc;
 
 use event::Event;
 use notification::Notification;
+use timer::Timer;
+use timerfd::TimerFd;
 
 static EPOLL_EVENT_SIZE: usize = 1024;
 
@@ -20,7 +22,7 @@ pub struct KernelPoller {
 impl KernelPoller {
     pub fn new() -> Result<KernelPoller> {
         let epfd = try!(epoll_create());
-        let registrations = Arc::new(AtomicUsize::new(0));
+        let registrations = Arc::new(AtomicUsize::new(1));
         Ok(KernelPoller {
             epfd: epfd,
             registrar: KernelRegistrar::new(epfd, registrations),
@@ -71,7 +73,7 @@ impl KernelRegistrar {
 
     pub fn register<T: AsRawFd>(&self, sock: &T, event: Event) -> Result<usize> {
         let sock_fd = sock.as_raw_fd();
-        let id = self.total_registrations.fetch_add(1, Ordering::SeqCst) + 1;
+        let id = self.total_registrations.fetch_add(1, Ordering::SeqCst);
         let info = EpollEvent {
             events: kind_from_event(event),
             data: id as u64
@@ -98,6 +100,40 @@ impl KernelRegistrar {
         };
         let sock_fd = sock.as_raw_fd();
         epoll_ctl(self.epfd, EpollOp::EpollCtlDel, sock_fd, &info)
+    }
+
+    pub fn set_timeout(&self, timeout: usize) -> Result<Timer> {
+        self.set_timer(timeout, false)
+    }
+
+    pub fn set_interval(&self, timeout: usize) -> Result<Timer> {
+        self.set_timer(timeout, true)
+    }
+
+    pub fn cancel_timeout(&self, timer: Timer) -> Result<()> {
+        // It would be quite a weird situation for deregister to fail, but close to succeed.
+        // We must always close the fd though so it doesn't leak.
+        let fd = timer.as_raw_fd();
+        let res = self.deregister(timer);
+        let _ = unsafe { libc::close(fd) };
+        res
+    }
+
+    fn set_timer(&self, timeout: usize, recurring: bool) -> Result<Timer> {
+        let timer_fd = try!(TimerFd::new(timeout, recurring));
+        let id = self.total_registrations.fetch_add(1, Ordering::SeqCst);
+        let info = EpollEvent {
+            events: read_event_not_oneshot(),
+            data: id as u64
+        };
+        let fd = timer_fd.into_raw_fd();
+        match epoll_ctl(self.epfd, EpollOp::EpollCtlAdd, fd, &info) {
+            Ok(_) => Ok(Timer {id: id, fd: fd}),
+            Err(e) => {
+                let _ = unsafe { libc::close(fd) };
+                Err(e)
+            }
+        }
     }
 }
 
@@ -128,5 +164,12 @@ fn kind_from_event(event: Event) -> EpollEventKind {
     // All events are edge triggered and oneshot
     kind.insert(EPOLLET);
     kind.insert(EPOLLONESHOT);
+    kind
+}
+
+fn read_event_not_oneshot() -> EpollEventKind {
+    let mut kind = EpollEventKind::empty();
+    kind.insert(EPOLLIN);
+    kind.insert(EPOLLET);
     kind
 }
