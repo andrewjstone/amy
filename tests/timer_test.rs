@@ -35,7 +35,6 @@ fn test_set_interval() {
     let timer = registrar.set_interval(TIMEOUT).unwrap();
     let now = Instant::now();
     for i in 1..5 {
-        println!("i = {}", i);
         let notifications = poller.wait(POLL_TIMEOUT).unwrap();
         timer.arm();
         let elapsed = now.elapsed();
