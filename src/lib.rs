@@ -1,5 +1,6 @@
 extern crate libc;
 extern crate nix;
+extern crate rustc_serialize;
 
 mod event;
 mod notification;
