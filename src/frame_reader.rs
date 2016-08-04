@@ -1,7 +1,7 @@
 //! This reader composes frames of bytes started with a 4 byte frame header indicating the size of
 //! the buffer. An exact size buffer will be allocated once the 4 byte frame header is received.
 
-use std::io::{self, Read};
+use std::io::{self, Read, Error, ErrorKind};
 use std::collections::VecDeque;
 use std::mem;
 
@@ -67,7 +67,12 @@ impl Frames {
         loop {
             let bytes_read = try!(self.do_read(reader));
             total_bytes_read += bytes_read;
-            // We either got EOF or we read a bunch of data, and didn't exaust our buffer.
+
+            if total_bytes_read == 0 {
+                return Error::new(ErrorKind::UnexpectedEof, "Read 0 bytes");
+            }
+
+            // We either are done reading or we read a bunch of data, and didn't exaust our buffer.
             if bytes_read == 0 || self.bytes_read != 0 {
                 return Ok(total_bytes_read)
             }
