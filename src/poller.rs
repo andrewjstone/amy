@@ -1,4 +1,4 @@
-use nix::Result;
+use std::io::{Result, Error};
 
 use registrar::Registrar;
 use notification::Notification;
@@ -39,6 +39,6 @@ impl Poller {
 
     /// Wait for notifications from the Poller
     pub fn wait(&mut self, timeout_ms: usize) -> Result<Vec<Notification>> {
-        self.inner.wait(timeout_ms)
+        self.inner.wait(timeout_ms).map_err(|e| Error::from(e))
     }
 }
