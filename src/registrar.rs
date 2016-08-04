@@ -1,5 +1,5 @@
 use std::os::unix::io::AsRawFd;
-use nix::Result;
+use std::io::{Result, Error};
 use event::Event;
 use timer::Timer;
 
@@ -34,12 +34,12 @@ impl Registrar {
     ///
     /// Note that if the sock type is not pollable, then an error will be returned.
     pub fn register<T: AsRawFd>(&self, sock: &T, event: Event) -> Result<usize> {
-        self.inner.register(sock, event)
+        self.inner.register(sock, event).map_err(|e| Error::from(e))
     }
 
     /// Reregister a socket with a Poller
     pub fn reregister<T: AsRawFd>(&self, id: usize, sock: &T, event: Event) -> Result<()> {
-        self.inner.reregister(id, sock, event)
+        self.inner.reregister(id, sock, event).map_err(|e| Error::from(e))
     }
 
     /// Remove a socket from a Poller
@@ -50,7 +50,7 @@ impl Registrar {
     /// Will return an error if the socket is not present in the poller when using epoll. Returns no
     /// error with kqueue.
     pub fn deregister<T: AsRawFd>(&self, sock: T) -> Result<()> {
-        self.inner.deregister(sock)
+        self.inner.deregister(sock).map_err(|e| Error::from(e))
     }
 
     /// Set a timeout in ms that fires once
@@ -61,7 +61,7 @@ impl Registrar {
     /// Note that an error will be returned if the maximum number of file descriptors is already
     /// registered with the kernel poller.
     pub fn set_timeout(&self, timeout: usize) -> Result<Timer> {
-        self.inner.set_timeout(timeout)
+        self.inner.set_timeout(timeout).map_err(|e| Error::from(e))
     }
 
     /// Set a recurring timeout in ms
@@ -76,7 +76,7 @@ impl Registrar {
     /// Note that an error will be returned if the maximum number of file descriptors is already
     /// registered with the kernel poller.
     pub fn set_interval(&self, interval: usize) -> Result<Timer> {
-        self.inner.set_interval(interval)
+        self.inner.set_interval(interval).map_err(|e| Error::from(e))
     }
 
     /// Cancel a recurring timeout.
@@ -88,6 +88,6 @@ impl Registrar {
     ///
     /// An error will be returned if the timer is not registered with the kernel poller.
     pub fn cancel_timeout(&self, timer: Timer) -> Result<()> {
-        self.inner.cancel_timeout(timer)
+        self.inner.cancel_timeout(timer).map_err(|e| Error::from(e))
     }
 }
