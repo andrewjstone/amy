@@ -69,7 +69,7 @@ impl Frames {
             total_bytes_read += bytes_read;
 
             if total_bytes_read == 0 {
-                return Error::new(ErrorKind::UnexpectedEof, "Read 0 bytes");
+                return Err(Error::new(ErrorKind::UnexpectedEof, "Read 0 bytes"));
             }
 
             // We either are done reading or we read a bunch of data, and didn't exaust our buffer.

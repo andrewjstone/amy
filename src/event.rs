@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, Eq, PartialEq, RustcEncodable, RustcDecodable)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Event {
     Read,
     Write,
