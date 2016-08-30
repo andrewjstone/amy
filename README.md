@@ -1,7 +1,7 @@
 [![Build
 Status](https://travis-ci.org/andrewjstone/amy.svg?branch=master)](https://travis-ci.org/andrewjstone/amy)
 
-[API Documentation](https://crates.fyi/crates/amy/0.3.0/)
+[API Documentation](https://docs.rs/amy)
 
 ### Usage
 
