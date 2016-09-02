@@ -5,13 +5,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::os::unix::io::AsRawFd;
 use nix::sys::event::{kqueue, kevent, KEvent, EventFilter, FilterFlag};
-use nix::sys::event::{EV_DELETE, EV_ADD, EV_ONESHOT};
+use nix::sys::event::{EV_DELETE, EV_ADD, EV_ONESHOT, EV_CLEAR, EV_DISABLE, NOTE_TRIGGER};
 use libc::{uintptr_t, intptr_t};
 use nix::Result;
 
 use event::Event;
 use notification::Notification;
 use timer::Timer;
+use user_event::UserEvent;
 
 #[cfg(not(target_os = "netbsd"))]
 type UserData = usize;
@@ -31,7 +32,7 @@ pub struct KernelPoller {
 impl KernelPoller {
     pub fn new() -> Result<KernelPoller> {
         let kq = try!(kqueue());
-        let registrations = Arc::new(AtomicUsize::new(1));
+        let registrations = Arc::new(AtomicUsize::new(0));
         Ok(KernelPoller {
             kqueue: kq,
             registrar: KernelRegistrar::new(kq, registrations),
@@ -127,6 +128,34 @@ impl KernelRegistrar {
         Ok(())
     }
 
+    pub fn register_user_event(&mut self) -> Result<UserEvent> {
+        let id = self.total_registrations.fetch_add(1, Ordering::SeqCst);
+        let changes = vec![make_user_event(id)];
+        try!(kevent(self.kqueue, &changes, &mut[], 0));
+        Ok(UserEvent {id: id, registrar: self.clone()})
+    }
+
+    pub fn trigger_user_event(&self, event: &UserEvent) -> Result<()> {
+        let mut user_event = make_user_event(event.get_id());
+        user_event.fflags = NOTE_TRIGGER;
+        try!(kevent(self.kqueue, &vec![user_event], &mut[], 0));
+        Ok(())
+    }
+
+    pub fn clear_user_event(&self, event: &UserEvent) -> Result<()> {
+        let mut user_event = make_user_event(event.get_id());
+        user_event.flags = EV_DISABLE;
+        try!(kevent(self.kqueue, &vec![user_event], &mut[], 0));
+        Ok(())
+    }
+
+    pub fn deregister_user_event(&self, event: UserEvent) -> Result<()> {
+        let mut user_event = make_user_event(event.get_id());
+        user_event.flags = EV_DELETE;
+        try!(kevent(self.kqueue, &vec![user_event], &mut[], 0));
+        Ok(())
+    }
+
     pub fn set_timeout(&self, timeout: usize) -> Result<Timer> {
         self.set_timer(timeout, false)
     }
@@ -152,7 +181,9 @@ impl KernelRegistrar {
 
 fn event_from_filter(filter: EventFilter) -> Event {
     // TODO: Change Event to allow returning TIMER events instead of marking them READ
-    if filter == EventFilter::EVFILT_READ || filter == EventFilter::EVFILT_TIMER {
+    if filter == EventFilter::EVFILT_READ ||
+       filter == EventFilter::EVFILT_TIMER ||
+       filter == EventFilter::EVFILT_USER {
         Event::Read
     } else {
         Event::Write
@@ -179,6 +210,17 @@ fn make_changelist(sock_fd: RawFd, event: Event, user_data: UserData) -> Vec<KEv
             vec![ev]
         },
         Event::Both => vec![ev, KEvent { filter: EventFilter::EVFILT_WRITE, .. ev }]
+    }
+}
+
+fn make_user_event(id: usize) -> KEvent {
+    KEvent {
+        ident: id as uintptr_t,
+        filter: EventFilter::EVFILT_USER,
+        flags: EV_ADD | EV_CLEAR,
+        fflags: FilterFlag::empty(),
+        data: 0,
+        udata: id as UserData
     }
 }
 

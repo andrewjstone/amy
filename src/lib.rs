@@ -9,6 +9,8 @@ mod frame_writer;
 mod poller;
 mod registrar;
 mod timer;
+mod user_event;
+mod channel;
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 mod epoll;
@@ -28,3 +30,4 @@ pub use line_reader::LineReader;
 pub use frame_reader::FrameReader;
 pub use frame_writer::FrameWriter;
 pub use timer::Timer;
+pub use channel::{channel, Sender, Receiver};

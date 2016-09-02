@@ -87,7 +87,7 @@ fn run_poller(mut poller: Poller, tx: Sender<Notification>) {
     assert_eq!(1, notifications.len());
     let notification = notifications.pop().unwrap();
     assert_eq!(Event::Read, notification.event);
-    assert_eq!(1, notification.id);
+    assert_eq!(0, notification.id);
 
     tx.send(notification).unwrap();
 
@@ -98,7 +98,7 @@ fn run_poller(mut poller: Poller, tx: Sender<Notification>) {
     assert_eq!(1, notifications.len());
     let notification = notifications.pop().unwrap();
     assert_eq!(Event::Read, notification.event);
-    assert_eq!(2, notification.id);
+    assert_eq!(1, notification.id);
 
     // Forward the notification to the worker
     tx.send(notification).unwrap();
@@ -111,7 +111,7 @@ fn run_poller(mut poller: Poller, tx: Sender<Notification>) {
     assert_eq!(1, notifications.len());
     let notification = notifications.pop().unwrap();
     assert_eq!(Event::Write, notification.event);
-    assert_eq!(2, notification.id);
+    assert_eq!(1, notification.id);
 
     // Forward the notification to the worker
     tx.send(notification).unwrap();
@@ -126,7 +126,7 @@ fn run_worker(registrar: Registrar, rx: Receiver<Notification>, listener: TcpLis
 
     let listener_id = registrar.register(&listener, Event::Read).unwrap();
     // This is the first registered socket, so it's Id is 1
-    assert_eq!(listener_id, 1);
+    assert_eq!(0, listener_id);
 
     // 1) Wait for a connection from the client to be noticed by the poller against the registered
     // listening socket. Then accept the connection and register it.
@@ -139,7 +139,7 @@ fn run_worker(registrar: Registrar, rx: Receiver<Notification>, listener: TcpLis
     socket.set_nonblocking(true).unwrap();
     let socket_id = registrar.register(&socket, Event::Read).unwrap();
     // This is the second registration of a socket, so it's Id is 2.
-    assert_eq!(2, socket_id);
+    assert_eq!(1, socket_id);
 
     // 2) Data was received on the socket from the client, the read event was handled by the poller
     // and forwarded to this worker.

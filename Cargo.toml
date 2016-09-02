@@ -8,5 +8,8 @@ keywords = ["async", "epoll", "kqueue", "eventloop", "timer"]
 license = "Apache-2.0"
 
 [dependencies]
-nix = "0.5.0"
 libc = "0.2"
+
+[dependencies.nix]
+version = "0.6"
+features = ["eventfd"]

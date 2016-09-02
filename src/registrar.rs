@@ -1,7 +1,9 @@
 use std::os::unix::io::AsRawFd;
 use std::io::{Result, Error};
+use std::fmt::Debug;
 use event::Event;
 use timer::Timer;
+use channel::{channel, sync_channel, Sender, SyncSender, Receiver};
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use epoll::KernelRegistrar;
@@ -89,5 +91,41 @@ impl Registrar {
     /// An error will be returned if the timer is not registered with the kernel poller.
     pub fn cancel_timeout(&self, timer: Timer) -> Result<()> {
         self.inner.cancel_timeout(timer).map_err(|e| Error::from(e))
+    }
+
+    /// Create an asynchronous mpsc channel where the Receiver is registered with the kernel poller.
+    ///
+    /// Each new Receiver gets registered using a user space event mechanism (either eventfd or
+    /// kevent depending upon OS). When a send occurs the kernel notification mechanism (a syscall on
+    /// a file descriptor) will be issued to alert the kernel poller to wakeup and issue a
+    /// notification for the Receiver. However, since syscalls are expensive, an optimization is
+    /// made where if the kernel poller is already set to awaken, or currently processing events, a
+    /// new syscall will not be made.
+    ///
+    /// Standard rust mpsc channels are used internally and have non-blocking semantics. Note that
+    /// the return type is different since the Receiver is being registered with the kernel poller
+    /// and this can fail.
+    ///
+    /// When a Receiver is dropped it will become unregistered.
+    pub fn channel<T: Debug>(&self) -> Result<(Sender<T>, Receiver<T>)> {
+        channel(self.inner.clone())
+    }
+
+    /// Create a synchronous mpsc channel where the Receiver is registered with the kernel poller.
+    ///
+    /// Each new Receiver gets registered using a user space event mechanism (either eventfd or
+    /// kevent depending upon OS). When a send occurs the kernel notification mechanism (a syscall on
+    /// a file descriptor) will be issued to alert the kernel poller to wakeup and issue a
+    /// notification for the Receiver. However, since syscalls are expensive, an optimization is
+    /// made where if the kernel poller is already set to awaken, or currently processing events, a
+    /// new syscall will not be made.
+    ///
+    /// Standard rust synchronous mpsc channels are used internally and block when the queue is
+    /// full, as given by the bound in the construcotr. Note that the return type is different
+    /// since the Receiver is being registered with the kernel poller and this can fail.
+    ///
+    /// When a Receiver is dropped it will become unregistered.
+    pub fn sync_channel<T: Debug>(&self, bound: usize) -> Result<(SyncSender<T>, Receiver<T>)> {
+        sync_channel(self.inner.clone(), bound)
     }
 }
