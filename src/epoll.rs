@@ -3,13 +3,15 @@ use std::slice;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use nix::sys::epoll::*;
-use nix::Result;
+use nix::{Result};
+use nix::sys::eventfd::{eventfd, EFD_CLOEXEC, EFD_NONBLOCK};
 use libc;
 
 use event::Event;
 use notification::Notification;
 use timer::Timer;
 use timerfd::TimerFd;
+use user_event::UserEvent;
 
 static EPOLL_EVENT_SIZE: usize = 1024;
 
@@ -22,10 +24,11 @@ pub struct KernelPoller {
 impl KernelPoller {
     pub fn new() -> Result<KernelPoller> {
         let epfd = try!(epoll_create());
-        let registrations = Arc::new(AtomicUsize::new(1));
+        let registrations = Arc::new(AtomicUsize::new(0));
+        let registrar = KernelRegistrar::new(epfd, registrations);
         Ok(KernelPoller {
             epfd: epfd,
-            registrar: KernelRegistrar::new(epfd, registrations),
+            registrar: registrar,
             events: Vec::with_capacity(EPOLL_EVENT_SIZE)
         })
     }
@@ -49,9 +52,10 @@ impl KernelPoller {
         unsafe { self.events.set_len(count); }
 
         Ok(self.events.iter().map(|e| {
+            let id = e.data as usize;
             Notification {
-                id: e.data as usize,
-                event: event_from_kind(e.events),
+                id: id,
+                event: event_from_kind(e.events)
             }
         }).collect())
     }
@@ -100,6 +104,26 @@ impl KernelRegistrar {
         };
         let sock_fd = sock.as_raw_fd();
         epoll_ctl(self.epfd, EpollOp::EpollCtlDel, sock_fd, &info)
+    }
+
+    pub fn register_user_event(&mut self) -> Result<UserEvent> {
+        let fd = try!(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK));
+        let id = self.total_registrations.fetch_add(1, Ordering::SeqCst);
+        let info = EpollEvent {
+            events: read_event_not_oneshot(),
+            data: id as u64
+        };
+        match epoll_ctl(self.epfd, EpollOp::EpollCtlAdd, fd, &info) {
+            Ok(_) => Ok(UserEvent {id: id, fd: fd}),
+            Err(e) => {
+                let _ = unsafe { libc::close(fd) };
+                Err(e)
+            }
+        }
+    }
+
+    pub fn deregister_user_event(&mut self, event: UserEvent) -> Result<()> {
+        self.deregister(event)
     }
 
     pub fn set_timeout(&self, timeout: usize) -> Result<Timer> {
