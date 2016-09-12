@@ -9,7 +9,7 @@ Add the following to your `Cargo.toml`
 
 ```toml
 [dependencies]
-amy = "0.3"
+amy = "0.5"
 ```
 
 Add this to your crate root
@@ -20,47 +20,47 @@ extern crate amy;
 
 ### Introduction
 
-Amy is an opinionated library that wraps Kqueue and Epoll to provide platform independent polling
-and registration abstractions useful for multithreaded asynchronous network programming. The main
-goal of Amy is to allow polling and registration of non-blocking socket FDs to take place on
-separate threads. Therefore, Amy is not an event loop, and is most useful when used in a
-multi-threaded application.
+Amy is a Rust library supporting asynchronous I/O by abstracting over the kernel pollers
+[kqueue](https://www.freebsd.org/cgi/man.cgi?query=kqueue&sektion=2) and
+[epoll](http://man7.org/linux/man-pages/man7/epoll.7.html). Amy has the following goals behind it's
+design:
 
-The best way to get started writing your code with Amy is to take a look at the [Multi-threaded
-example test](https://github.com/andrewjstone/amy/blob/master/tests/multithread-example.rs). It
-provides the canonical usage example, although is certainly not the only way to build your system.
+  * Clean I/O Abstractions - Don't require users to understand anything about the internals of kernel
+    pollers such as triggering modes, filters, file descriptors, etc...
 
-On registration of a socket, Amy will return a unique ID for that socket. This id is to
-be used along with the socket when re-registering for new events. Ownership of the socket is never
-transfered to either the registrar or the poller. Only the raw file descriptor is copied from the
-socket when registering. On notification, the unique id and event type will be returned from the
-Poller.
+  * Minimal Configuration - In line with clean abstractions, choices of polling
+    modes are made inside the library in order to provide the desired semantics of the library
+    without the user having to understand the low level details
 
-A benefit of decoupling the Poller and Registrar is that the Poller thread never has to perform any
-serialization or reading/writing to the socket. It only has to poll for events and notify the owner
-of the socket that an event is ready. This can be done via a channel or other means. Any work
-needing to be done can be load balanced among threads by transfering ownership of the socket
-temporarily then re-registering as necessary. An additonal benefit is that there is no need to wake
-up the polling thread when registering a socket, because the polling thread isn't intended to
-perform registrations.
+  * Performance - Amy performs zero run-time allocations in the poller and registrar after initial
+    startup and limits system calls via non-blocking algorithms where possible
+
+  * Minimal implementation - Amy implements just enough code to get the job done. There isn't an
+    abundance of types or traits. The code should also be readable in a linear fashion without
+    jumping from file to file. This should make auditing for both correctness and performance
+    easier.
+
+  * Small and consistent API - There are only a few concepts to understand, and a few functions to
+    use.
+
+  * Reuse of Rust standard types and traits - Instead of creating a wrapper around every pollable
+    I/O type such as TcpStreams, the library can use the standard library types directly. The
+    only requirement is that these types implement the `AsRawFd` trait and are pollable by the
+    kernel mechanism.
+
+The best way to get started writing your code with Amy is to take a look at the [Getting Started
+Guide] (https://github.com/andrewjstone/amy/blob/master/doc/getting_started.md).
 
 ### How is this different from Mio
 
 [Mio](https://github.com/carllerche/mio/) is a fantastic project from which Amy has cribbed many
-ideas. However, the two are distinct in a few specific areas. Specifically, Mio provides an event
-loop abstraction at its core. File descriptors are registered and polled on a single thread.
-Reading from and writing to those descriptors also takes place on this thread. Mio only allows tokens
-(integers) to be registered with the kernel poller as unique identifiers for a given FD, and returns
-these to a `ready` callback (implemented by the user) when an FD is readable or writable. In order to
-support cross thread interaction, mio provides a channel allowing data to be sent to the event
-loop. This channel allows the user to send messages telling the event loop handler (implemented by
-the user), to register an FD or write some data. In order to get data out of the event loop, the
-handler must use another channel, or channels, which are not managed by Mio.
-
-In contrast to this, Amy allows separation of the registration and polling functionality as
-described above. However, Amy also requires a channel, or channels, managed by the user to forward
-Notifications from the polling thread to other threads as necessary. It's not clear whether one will
-provide better performance than the other as it depends on usage patterns in a real world scenario.
+ideas. However, the two are distinct in a few specific areas. The core difference is that mio is
+inherently single threaded: registrations must be made on the same thread as the poller, and the
+poll loop must be woken up in order to add registrations. In contrast Amy allows registrations to be
+made on a separate thread from the poller without waking it. Amy also provides a smaller code base
+dedicated to async network programming. It does not allow arbitrary registration of events with the
+kernel poller, although this could be easily provided. Like Mio, Amy is a building block and the
+choice of whether to use one or the other is simply one of preference.
 
 The choice to use Mio or Amy is not necessarily clear, so a short list of features is drawn below,
 along with some (subjective) use cases showing the reasons to choose either Mio or Amy.
@@ -72,8 +72,7 @@ Choose Mio if you:
 
 Choose Amy if you:
  * Only need `\*nix` support
- * Are writing a multi-threaded server
- * Want the simplest possible abstractions to make epoll and kqueue usable and Rusty
+ * Are writing a multi-threaded server requiring cross thread registration
  * Want a small, easily auditable library, with little unsafe code
  * Are comfortable using something newer and less proven
 
