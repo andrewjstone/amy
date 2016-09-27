@@ -189,8 +189,10 @@ mod tests {
                 }
             }
         });
-
-        let _ = TcpStream::connect(IP).unwrap();
+        // Assign to a variable so the sock isn't dropped early
+        // Name it with a preceding underscore so we don't get an unused variable warning
+        let _sock = TcpStream::connect(IP).unwrap();
         h.join().unwrap();
+
     }
 }
