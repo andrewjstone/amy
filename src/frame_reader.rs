@@ -1,7 +1,7 @@
 //! This reader composes frames of bytes started with a 4 byte frame header indicating the size of
 //! the buffer. An exact size buffer will be allocated once the 4 byte frame header is received.
 
-use std::io::{self, Read, Error, ErrorKind};
+use std::io::{self, Read};
 use std::collections::VecDeque;
 use std::mem;
 
