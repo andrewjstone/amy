@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::os::unix::io::AsRawFd;
 use nix::sys::event::{kqueue, kevent, KEvent, EventFilter, FilterFlag};
-use nix::sys::event::{EV_DELETE, EV_ADD, EV_ONESHOT, EV_CLEAR, EV_DISABLE, NOTE_TRIGGER};
+use nix::sys::event::{EV_ENABLE, EV_DELETE, EV_ADD, EV_ONESHOT, EV_CLEAR, EV_DISABLE, NOTE_TRIGGER};
 use libc::{uintptr_t, intptr_t};
 use nix::Result;
 
@@ -217,7 +217,7 @@ fn make_user_event(id: usize) -> KEvent {
     KEvent {
         ident: id as uintptr_t,
         filter: EventFilter::EVFILT_USER,
-        flags: EV_ADD | EV_CLEAR,
+        flags: EV_ADD | EV_CLEAR | EV_ENABLE,
         fflags: FilterFlag::empty(),
         data: 0,
         udata: id as UserData

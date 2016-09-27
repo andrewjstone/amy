@@ -123,6 +123,29 @@ fn send_after_receive_after_poll_followed_by_recv_until_err_doesnt_wake_polller_
 }
 
 #[test]
+/// Ensure that when the user event is cleared that retriggering it wakes the poller
+fn send_poll_receive_twice_then_send_poll_receive_once() {
+    let mut poller = Poller::new().unwrap();
+    let registrar = poller.get_registrar();
+    let (tx, rx) = registrar.channel().unwrap();
+
+    tx.send("a").unwrap();
+
+    let notifications = poller.wait(5000).unwrap();
+    assert_eq!(1, notifications.len());
+    assert_eq!(rx.get_id(), notifications[0].id);
+    assert_eq!("a", rx.try_recv().unwrap());
+    assert!(rx.try_recv().is_err());
+
+    tx.send("b").unwrap();
+
+    let notifications = poller.wait(5000).unwrap();
+    assert_eq!(1, notifications.len());
+    assert_eq!(rx.get_id(), notifications[0].id);
+    assert_eq!("b", rx.try_recv().unwrap());
+}
+
+#[test]
 fn simple_sync_channel_test() {
     let mut poller = Poller::new().unwrap();
     let registrar = poller.get_registrar();

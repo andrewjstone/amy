@@ -1,4 +1,5 @@
 use std::sync::{mpsc, Arc};
+use std::fmt::Debug;
 use std::io;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use user_event::UserEvent;
@@ -11,7 +12,7 @@ use epoll::KernelRegistrar;
           target_os = "netbsd", target_os = "openbsd"))]
 pub use kqueue::KernelRegistrar;
 
-pub fn channel<T>(mut registrar: KernelRegistrar) -> io::Result<(Sender<T>, Receiver<T>)> {
+pub fn channel<T: Debug>(mut registrar: KernelRegistrar) -> io::Result<(Sender<T>, Receiver<T>)> {
     let (tx, rx) = mpsc::channel();
     let pending = Arc::new(AtomicUsize::new(0));
     let user_event = try!(registrar.register_user_event().map_err(|e| io::Error::from(e)));
@@ -32,7 +33,7 @@ pub fn channel<T>(mut registrar: KernelRegistrar) -> io::Result<(Sender<T>, Rece
     Ok((tx, rx))
 }
 
-pub fn sync_channel<T>(mut registrar: KernelRegistrar,
+pub fn sync_channel<T: Debug>(mut registrar: KernelRegistrar,
                               bound: usize) -> io::Result<(SyncSender<T>, Receiver<T>)> {
     let (tx, rx) = mpsc::sync_channel(bound);
     let pending = Arc::new(AtomicUsize::new(0));
@@ -56,13 +57,13 @@ pub fn sync_channel<T>(mut registrar: KernelRegistrar,
 
 
 #[derive(Debug, Clone)]
-pub struct Sender<T> {
+pub struct Sender<T: Debug> {
     tx: mpsc::Sender<T>,
     user_event: UserEvent,
     pending: Arc<AtomicUsize>
 }
 
-impl<T> Sender<T> {
+impl<T: Debug> Sender<T> {
     pub fn send(&self, msg: T) -> Result<(), ChannelError<T>> {
         try!(self.tx.send(msg));
         if self.pending.fetch_add(1, Ordering::SeqCst) == 0 {
@@ -74,13 +75,13 @@ impl<T> Sender<T> {
 }
 
 #[derive(Debug, Clone)]
-pub struct SyncSender<T> {
+pub struct SyncSender<T: Debug> {
     tx: mpsc::SyncSender<T>,
     user_event: UserEvent,
     pending: Arc<AtomicUsize>
 }
 
-impl<T> SyncSender<T> {
+impl<T: Debug> SyncSender<T> {
     pub fn send(&self, msg: T) -> Result<(), ChannelError<T>> {
         try!(self.tx.send(msg));
         if self.pending.fetch_add(1, Ordering::SeqCst) == 0 {
@@ -100,14 +101,14 @@ impl<T> SyncSender<T> {
     }
 }
 
-pub struct Receiver<T> {
+pub struct Receiver<T: Debug> {
     rx: mpsc::Receiver<T>,
     user_event: UserEvent,
     pending: Arc<AtomicUsize>,
     registrar: KernelRegistrar
 }
 
-impl<T> Receiver<T> {
+impl<T: Debug> Receiver<T> {
     pub fn try_recv(&self) -> Result<T, ChannelError<T>> {
         if self.pending.load(Ordering::SeqCst) == 0 {
             // Clear the kernel event and prepare for edge triggering
@@ -133,7 +134,7 @@ impl<T> Receiver<T> {
     }
 }
 
-impl<T> Drop for Receiver<T> {
+impl<T: Debug> Drop for Receiver<T> {
     fn drop(&mut self) {
         // Don't leak file descriptors. Note that the tx side will never get notified that the rx
         // side is gone, so senders can leak. However, any attempt to send from a sender will show
