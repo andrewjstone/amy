@@ -62,19 +62,22 @@ impl Frames {
         }
     }
 
+    /// Will read as much data as possible and build up frames to be retrieved from the iterator.
+    ///
+    /// Will stop reading when 0 bytes are retrieved from the latest call to `do_read` or the error
+    /// kind is io::ErrorKind::WouldBlock.
+    ///
+    /// Returns an error or the total amount of bytes read.
     fn read<T: Read>(&mut self, reader: &mut T) -> io::Result<usize> {
         let mut total_bytes_read = 0;
         loop {
-            let bytes_read = try!(self.do_read(reader));
-            total_bytes_read += bytes_read;
-
-            if total_bytes_read == 0 {
-                return Err(Error::new(ErrorKind::UnexpectedEof, "Read 0 bytes"));
-            }
-
-            // We either are done reading or we read a bunch of data, and didn't exaust our buffer.
-            if bytes_read == 0 || self.bytes_read != 0 {
-                return Ok(total_bytes_read)
+            match self.do_read(reader) {
+                Ok(0) => return Ok(total_bytes_read),
+                Ok(bytes_read) => {
+                    total_bytes_read += bytes_read;
+                },
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(total_bytes_read),
+                Err(e) => return Err(e)
             }
         }
     }
@@ -115,9 +118,10 @@ impl Frames {
 
 #[cfg(test)]
 mod tests {
-    use std::mem;
+    use std::{mem, thread};
     use std::io::Cursor;
     use std::io::Write;
+    use std::net::{TcpListener, TcpStream};
     use super::FrameReader;
 
     #[test]
@@ -162,5 +166,26 @@ mod tests {
         let bytes_read = reader.read(&mut data).unwrap();
         assert_eq!(7, bytes_read);
         assert_eq!(buf2, reader.iter_mut().next().unwrap());
+    }
+
+    const IP: &'static str = "127.0.0.1:5003";
+    /// Test that we never get an io error, but instead get Ok(0) when the call to read would block
+    #[test]
+    fn would_block() {
+        let listener = TcpListener::bind(IP).unwrap();
+        let h = thread::spawn(move || {
+            for stream in listener.incoming() {
+                if let Ok(mut conn) = stream {
+                    conn.set_nonblocking(true).unwrap();
+                    let mut reader = FrameReader::new(1024);
+                    let result = reader.read(&mut conn);
+                    assert_matches!(result, Ok(0));
+                    return;
+                }
+            }
+        });
+
+        let _ = TcpStream::connect(IP).unwrap();
+        h.join().unwrap();
     }
 }

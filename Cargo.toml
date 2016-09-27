@@ -1,6 +1,6 @@
 [package]
 name = "amy"
-version = "0.5.2"
+version = "0.5.3"
 authors = ["Andrew J. Stone <andrew.j.stone.1@gmail.com>"]
 description = "Polling and Registration abstractions around kqueue and epoll for multithreaded async network programming"
 repository = "https://github.com/andrewjstone/amy"
@@ -13,3 +13,6 @@ libc = "0.2"
 [dependencies.nix]
 version = "0.6"
 features = ["eventfd"]
+
+[dev-dependencies]
+assert_matches = "1.0"

@@ -1,6 +1,10 @@
 extern crate libc;
 extern crate nix;
 
+#[cfg(test)]
+#[macro_use]
+extern crate assert_matches;
+
 mod event;
 mod notification;
 mod line_reader;
