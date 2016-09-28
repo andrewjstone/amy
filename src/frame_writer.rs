@@ -52,6 +52,14 @@ impl FrameWriter {
         self.is_writable = true;
     }
 
+    pub fn is_writable(&self) -> bool {
+        self.is_writable
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.is_empty
+    }
+
     fn append_frame(&mut self, frame: Vec<u8>) {
         let header = u32_to_vec(frame.len() as u32);
         if self.is_empty {
