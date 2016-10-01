@@ -76,8 +76,8 @@ let handle = thread::spawn(move || {
            let (mut socket, _) = listener.accept().unwrap();
            socket.set_nonblocking(true).unwrap();
 
-           // Let's register the socket for Read Events
-           let socket_id = registrar.register(&socket, Event::Read).unwrap();
+           // Let's register the socket for Read + Write Events
+           let socket_id = registrar.register(&socket, Event::Both).unwrap();
 
            // Store the socket in the hashmap so we know which connection to read from or write to.
            // In practice we'd also have to maintain other state such as whether the socket is currently
@@ -157,53 +157,27 @@ fn handle_poll_notification(notification: Notification,
          Event::Write => {
              // Attempt to write *all* existing data queued for writing. `None` as the second
              // parameter means no new data.
-             match conn.writer.write(&mut conn.sock, None) {
-                 Ok(false) => {
-                     // The socket is no longer writable, so re-register the socket for reading and
-                     // writing. Even if the socket is only for writing, you pretty much always want
-                     // to register `Event::Both` instead of just `Event::Write`, or else you will get
-                     // never get notified that data is available to be read, including closed
-                     // socket or error notifications.
-                     registrar.reregister(id, &conn.sock, Event::Both)
-                 },
-                 Ok(true) => {
-                     // The socket is still writable. If we re-registered we'd immediately get another
-                     // notification even though there is nothing to write. This could cause 100% cpu
-                     // usage. Instead we just return, since the writer maintains whether the socket
-                     // is still writable or not. When this thread gets a write request it can
-                     // just directly write to the socket using the writer instead of waiting for a
-                     // notification.
-                     Ok(())
-                 },
-                 Err(e) => Err(e) // Cleanup handled in caller
-             }
+             let _ = try!(conn.writer.write(&mut conn.sock, None));
          },
          Event::Both => {
              // Do a combination of the above clauses :)
              ...
          }
-       }
+      }
    }
+   Ok(())
 }
 
 // Write data to some socket if possible
+// This is called directly from client code and does not get called after poll notifications
 fn user_write(id: usize,
               registrar: &Registrar,
               connections: &mut HashMap<usize, Conn>,
               data: Vec<u8>) -> io::Result() {
     if let Some(conn) = connections.get_mut(&notification.id) {
-        match conn.writer.write(&mut conn.sock, data) {
-            Ok(false) => {
-                // Same rationale as above
-                registrar.reregister(id, &conn.sock, Event::Both)
-            },
-            Ok(true) => {
-                // Same rationale as above
-                Ok(())
-            },
-            Err(e) => Err(e) // Cleanup handled in caller
-        }
+        try!(conn.writer.write(&mut conn.sock, data));
     }
+    Ok(())
 }
 
 ```

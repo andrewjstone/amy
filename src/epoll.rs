@@ -110,7 +110,7 @@ impl KernelRegistrar {
         let fd = try!(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK));
         let id = self.total_registrations.fetch_add(1, Ordering::SeqCst);
         let info = EpollEvent {
-            events: read_event_not_oneshot(),
+            events: kind_from_event(Event::Read),
             data: id as u64
         };
         match epoll_ctl(self.epfd, EpollOp::EpollCtlAdd, fd, &info) {
@@ -147,7 +147,7 @@ impl KernelRegistrar {
         let timer_fd = try!(TimerFd::new(timeout, recurring));
         let id = self.total_registrations.fetch_add(1, Ordering::SeqCst);
         let info = EpollEvent {
-            events: read_event_not_oneshot(),
+            events: kind_from_event(Event::Read),
             data: id as u64
         };
         let fd = timer_fd.into_raw_fd();
@@ -185,15 +185,7 @@ fn kind_from_event(event: Event) -> EpollEventKind {
             kind.insert(EPOLLOUT);
         }
     }
-    // All events are edge triggered and oneshot
-    kind.insert(EPOLLET);
-    kind.insert(EPOLLONESHOT);
-    kind
-}
-
-fn read_event_not_oneshot() -> EpollEventKind {
-    let mut kind = EpollEventKind::empty();
-    kind.insert(EPOLLIN);
+    // All events are edge triggered
     kind.insert(EPOLLET);
     kind
 }
