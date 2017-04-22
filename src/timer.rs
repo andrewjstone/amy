@@ -10,7 +10,7 @@ use libc;
 /// On Linux this contains a file descriptor created with
 /// [timerfd_create()](http://man7.org/linux/man-pages/man2/timerfd_create.2.html)
 /// On systems using kqueue, a file descriptor is not needed, so it is set to 0.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Timer {
     #[doc(hidden)]
     pub id: usize,
