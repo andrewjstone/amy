@@ -17,15 +17,17 @@ pub fn channel<T: Debug>(mut registrar: KernelRegistrar) -> io::Result<(Sender<T
     let pending = Arc::new(AtomicUsize::new(0));
     let user_event = try!(registrar.register_user_event().map_err(|e| io::Error::from(e)));
 
+    let dup = try!(user_event.try_clone());
+
     let tx = Sender {
         tx: tx,
-        user_event: user_event.clone(),
+        user_event: user_event,
         pending: pending.clone()
     };
 
     let rx = Receiver {
         rx: rx,
-        user_event: user_event,
+        user_event: dup,
         pending: pending,
         registrar: registrar
     };
@@ -39,15 +41,17 @@ pub fn sync_channel<T: Debug>(mut registrar: KernelRegistrar,
     let pending = Arc::new(AtomicUsize::new(0));
     let user_event = try!(registrar.register_user_event().map_err(|e| io::Error::from(e)));
 
+    let dup = try!(user_event.try_clone());
+
     let tx = SyncSender {
         tx: tx,
-        user_event: user_event.clone(),
+        user_event: user_event,
         pending: pending.clone()
     };
 
     let rx = Receiver {
         rx: rx,
-        user_event: user_event,
+        user_event: dup,
         pending: pending,
         registrar: registrar
     };
@@ -56,7 +60,7 @@ pub fn sync_channel<T: Debug>(mut registrar: KernelRegistrar,
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Sender<T: Debug> {
     tx: mpsc::Sender<T>,
     user_event: UserEvent,
@@ -74,7 +78,7 @@ impl<T: Debug> Sender<T> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct SyncSender<T: Debug> {
     tx: mpsc::SyncSender<T>,
     user_event: UserEvent,
@@ -105,6 +109,8 @@ pub struct Receiver<T: Debug> {
     rx: mpsc::Receiver<T>,
     user_event: UserEvent,
     pending: Arc<AtomicUsize>,
+
+    #[allow(dead_code)] // Only used in kqueue based systems
     registrar: KernelRegistrar
 }
 
@@ -134,12 +140,24 @@ impl<T: Debug> Receiver<T> {
     }
 }
 
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
 impl<T: Debug> Drop for Receiver<T> {
     fn drop(&mut self) {
         // Don't leak file descriptors. Note that the tx side will never get notified that the rx
         // side is gone, so senders can leak. However, any attempt to send from a sender will show
         // the receiver to be disconnected, so they can be cleaned up then, or ahead of time if it's
         // known that the channel is going away.
+        // Always remove the user event from the kernel poller.  This isn't needed with
+        // epoll, as if all senders and receievers are dropped, all the duplicate file descriptors
+        // will be closed and the event will automatically be removed.
+        //
+        // It is needed with kqueue, since there are no actual file descriptors associated with
+        // the event and so therefore it must be removed manually.
+        //
+        // Note that the tx side will never get notified that the rx side is gone.
+        // However, any attempt to send from a sender will show the receiver to be disconnected, so
+        // they can be dropped then, or ahead of time if it's known in another manner that the
+        // receiver is going away.
         let _ = self.registrar.deregister_user_event(self.user_event.clone());
     }
 }
@@ -175,4 +193,3 @@ impl<T> From<mpsc::TryRecvError> for ChannelError<T> {
         ChannelError::TryRecvError(e)
     }
 }
-

@@ -11,7 +11,7 @@ use libc;
 /// On Linux this contains a file descriptor created with
 /// [eventfd()](http://man7.org/linux/man-pages/man2/eventfd.2.html)
 #[cfg(any(target_os = "linux", target_os = "android"))]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct UserEvent {
     #[doc(hidden)]
     pub id: usize,
@@ -24,6 +24,19 @@ pub struct UserEvent {
 impl UserEvent {
     pub fn get_id(&self) -> usize {
         self.id
+    }
+
+    pub fn try_clone(&self) -> Result<UserEvent> {
+        unsafe {
+            let fd = libc::dup(self.fd);
+            if fd < 0 {
+                return Err(Error::last_os_error());
+            }
+            Ok(UserEvent {
+                id: self.id,
+                fd: fd
+            })
+        }
     }
 
     pub fn clear(&self) -> Result<()> {
@@ -50,6 +63,15 @@ impl UserEvent {
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
+impl Drop for UserEvent {
+    fn drop(&mut self) {
+        unsafe {
+            libc::close(self.fd);
+        }
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
 impl AsRawFd for UserEvent {
     fn as_raw_fd(&self) -> RawFd {
         self.fd
@@ -64,6 +86,7 @@ pub use kqueue::KernelRegistrar;
 /// An opaque handle to a user level event.
 ///
 /// On Kqueue base systems there is no file descriptor
+/// The event is clone because of this fact.
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 #[derive(Debug, Clone)]
 pub struct UserEvent {
