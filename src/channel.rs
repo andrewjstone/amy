@@ -76,6 +76,19 @@ impl<T: Debug> Sender<T> {
         }
         Ok(())
     }
+
+    pub fn try_clone(&self) -> io::Result<Sender<T>> {
+        Ok(Sender {
+            tx: self.tx.clone(),
+            user_event: self.user_event.try_clone()?,
+            pending: self.pending.clone()
+        })
+    }
+
+    // Return the poll id for the channel
+    pub fn get_id(&self) -> usize {
+        self.user_event.get_id()
+    }
 }
 
 #[derive(Debug)]
@@ -102,6 +115,19 @@ impl<T: Debug> SyncSender<T> {
             try!(self.user_event.trigger());
         }
         Ok(())
+    }
+
+    pub fn try_clone(&self) -> io::Result<SyncSender<T>> {
+        Ok(SyncSender {
+            tx: self.tx.clone(),
+            user_event: self.user_event.try_clone()?,
+            pending: self.pending.clone()
+        })
+    }
+
+    // Return the poll id for the channel
+    pub fn get_id(&self) -> usize {
+        self.user_event.get_id()
     }
 }
 

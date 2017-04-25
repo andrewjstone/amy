@@ -17,13 +17,13 @@ const FINAL_POLL_TIMEOUT: usize = 250; // ms
 #[test]
 fn test_set_timeout() {
     let mut poller = Poller::new().unwrap();
-    let registrar = poller.get_registrar();
+    let registrar = poller.get_registrar().unwrap();
     let now = Instant::now();
-    let timer = registrar.set_timeout(TIMEOUT).unwrap();
+    let timer_id = registrar.set_timeout(TIMEOUT).unwrap();
     let notifications = poller.wait(POLL_TIMEOUT).unwrap();
     let elapsed = now.elapsed();
     assert_eq!(1, notifications.len());
-    assert_eq!(timer.get_id(), notifications[0].id);
+    assert_eq!(timer_id, notifications[0].id);
     assert!(elapsed > Duration::from_millis(TIMEOUT as u64));
     assert!(elapsed < Duration::from_millis(POLL_TIMEOUT as u64));
 }
@@ -31,19 +31,18 @@ fn test_set_timeout() {
 #[test]
 fn test_set_interval() {
     let mut poller = Poller::new().unwrap();
-    let registrar = poller.get_registrar();
-    let timer = registrar.set_interval(TIMEOUT).unwrap();
+    let registrar = poller.get_registrar().unwrap();
+    let timer_id = registrar.set_interval(TIMEOUT).unwrap();
     let now = Instant::now();
     for i in 1..5 {
         let notifications = poller.wait(POLL_TIMEOUT).unwrap();
-        timer.arm();
         let elapsed = now.elapsed();
         assert_eq!(1, notifications.len());
-        assert_eq!(timer.get_id(), notifications[0].id);
+        assert_eq!(timer_id, notifications[0].id);
         assert!(elapsed > Duration::from_millis(i*TIMEOUT as u64));
         assert!(elapsed < Duration::from_millis(POLL_TIMEOUT as u64));
     }
-    assert!(registrar.cancel_timeout(timer).is_ok());
+    assert!(registrar.cancel_timeout(timer_id).is_ok());
     let now = Instant::now();
     let notifications = poller.wait(FINAL_POLL_TIMEOUT).unwrap();
     assert!(now.elapsed() > Duration::from_millis(FINAL_POLL_TIMEOUT as u64));

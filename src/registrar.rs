@@ -1,8 +1,7 @@
 use std::os::unix::io::AsRawFd;
-use std::io::{Result, Error};
+use std::io::Result;
 use std::fmt::Debug;
 use event::Event;
-use timer::Timer;
 use channel::{channel, sync_channel, Sender, SyncSender, Receiver};
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -18,7 +17,7 @@ pub use kqueue::KernelRegistrar;
 /// A Registrar is tied to a Poller of the same type, and registers sockets and unique IDs for those
 /// sockets as userdata that can be waited on by the poller. A Registar should only be retrieved via
 /// a call to Poller::get_registrar(&self), and not created on it's own.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Registrar {
     inner: KernelRegistrar
 }
@@ -32,16 +31,22 @@ impl Registrar {
         }
     }
 
+    pub fn try_clone(&self) -> Result<Registrar> {
+        Ok(Registrar {
+            inner: self.inner.try_clone()?
+        })
+    }
+
     /// Register a socket for a given event type, with a Poller and return it's unique ID
     ///
     /// Note that if the sock type is not pollable, then an error will be returned.
     pub fn register<T: AsRawFd>(&self, sock: &T, event: Event) -> Result<usize> {
-        self.inner.register(sock, event).map_err(|e| Error::from(e))
+        self.inner.register(sock, event)
     }
 
     /// Reregister a socket with a Poller
     pub fn reregister<T: AsRawFd>(&self, id: usize, sock: &T, event: Event) -> Result<()> {
-        self.inner.reregister(id, sock, event).map_err(|e| Error::from(e))
+        self.inner.reregister(id, sock, event)
     }
 
     /// Remove a socket from a Poller
@@ -52,7 +57,7 @@ impl Registrar {
     /// Will return an error if the socket is not present in the poller when using epoll. Returns no
     /// error with kqueue.
     pub fn deregister<T: AsRawFd>(&self, sock: T) -> Result<()> {
-        self.inner.deregister(sock).map_err(|e| Error::from(e))
+        self.inner.deregister(sock)
     }
 
     /// Set a timeout in ms that fires once
@@ -62,8 +67,8 @@ impl Registrar {
     ///
     /// Note that an error will be returned if the maximum number of file descriptors is already
     /// registered with the kernel poller.
-    pub fn set_timeout(&self, timeout: usize) -> Result<Timer> {
-        self.inner.set_timeout(timeout).map_err(|e| Error::from(e))
+    pub fn set_timeout(&self, timeout: usize) -> Result<usize> {
+        self.inner.set_timeout(timeout)
     }
 
     /// Set a recurring timeout in ms
@@ -77,8 +82,8 @@ impl Registrar {
     ///
     /// Note that an error will be returned if the maximum number of file descriptors is already
     /// registered with the kernel poller.
-    pub fn set_interval(&self, interval: usize) -> Result<Timer> {
-        self.inner.set_interval(interval).map_err(|e| Error::from(e))
+    pub fn set_interval(&self, interval: usize) -> Result<usize> {
+        self.inner.set_interval(interval)
     }
 
     /// Cancel a recurring timeout.
@@ -89,8 +94,8 @@ impl Registrar {
     /// timers.
     ///
     /// An error will be returned if the timer is not registered with the kernel poller.
-    pub fn cancel_timeout(&self, timer: Timer) -> Result<()> {
-        self.inner.cancel_timeout(timer).map_err(|e| Error::from(e))
+    pub fn cancel_timeout(&self, timer_id: usize) -> Result<()> {
+        self.inner.cancel_timeout(timer_id)
     }
 
     /// Create an asynchronous mpsc channel where the Receiver is registered with the kernel poller.
@@ -108,7 +113,7 @@ impl Registrar {
     ///
     /// When a Receiver is dropped it will become unregistered.
     pub fn channel<T: Debug>(&self) -> Result<(Sender<T>, Receiver<T>)> {
-        channel(self.inner.clone())
+        channel(self.inner.try_clone()?)
     }
 
     /// Create a synchronous mpsc channel where the Receiver is registered with the kernel poller.
@@ -126,6 +131,6 @@ impl Registrar {
     ///
     /// When a Receiver is dropped it will become unregistered.
     pub fn sync_channel<T: Debug>(&self, bound: usize) -> Result<(SyncSender<T>, Receiver<T>)> {
-        sync_channel(self.inner.clone(), bound)
+        sync_channel(self.inner.try_clone()?, bound)
     }
 }
