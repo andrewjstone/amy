@@ -14,6 +14,9 @@ use timerfd::TimerFd;
 use user_event::UserEvent;
 use channel::{channel, Sender, Receiver};
 
+#[cfg(feature = "no_timerfd")]
+use timer_heap::{TimerHeap, TimerEntry};
+
 static EPOLL_EVENT_SIZE: usize = 1024;
 
 #[derive(Debug, Clone)]
@@ -28,13 +31,17 @@ pub struct KernelPoller {
     registrar: KernelRegistrar,
     events: Vec<EpollEvent>,
     timer_rx: Receiver<TimerMsg>,
+
+    #[cfg(not(feature = "no_timerfd"))]
     timers: HashMap<usize, Timer>,
 
-    #[cfg(no_timerfd)]
-    timers: ChannelTimers
+    #[cfg(feature = "no_timerfd")]
+    timers: TimerHeap
 }
 
 impl KernelPoller {
+
+    #[cfg(not(feature = "no_timerfd"))]
     pub fn new() -> Result<KernelPoller> {
         let epfd = epoll_create()?;
         let registrations = Arc::new(AtomicUsize::new(0));
@@ -50,12 +57,31 @@ impl KernelPoller {
         })
     }
 
+    #[cfg(feature = "no_timerfd")]
+    pub fn new() -> Result<KernelPoller> {
+        let epfd = epoll_create()?;
+        let registrations = Arc::new(AtomicUsize::new(0));
+        let mut registrar = KernelRegistrar::new(epfd, registrations);
+        let (tx, rx) = channel(registrar.try_clone()?)?;
+        registrar.timer_tx = Some(tx);
+        Ok(KernelPoller {
+            epfd: epfd,
+            registrar: registrar,
+            events: Vec::with_capacity(EPOLL_EVENT_SIZE),
+            timer_rx: rx,
+            timers: TimerHeap::new()
+        })
+    }
+
+
+
     pub fn get_registrar(&self) -> Result<KernelRegistrar> {
         self.registrar.try_clone()
     }
 
     /// Wait for epoll events. Return a list of notifications. Notifications contain user data
     /// registered with epoll_ctl which is extracted from the data member returned from epoll_wait.
+    #[cfg(not(feature = "no_timerfd"))]
     pub fn wait(&mut self, timeout_ms: usize) -> Result<Vec<Notification>> {
 
         // We may have gotten a timer registration while awake, don't bother sleeping just to
@@ -98,6 +124,57 @@ impl KernelPoller {
         Ok(notifications)
     }
 
+    /// Wait for epoll events
+    /// If timers are in use, the `timeout_ms` parameter may be ignored, as the epoll timeout
+    /// becomes the minimum of the remaining time on the earliest timer scheduled to fire and
+    /// `timeout_ms`.
+    #[cfg(feature = "no_timerfd")]
+    pub fn wait(&mut self, timeout_ms: usize) -> Result<Vec<Notification>> {
+
+        // We may have gotten a timer registration while awake, don't bother sleeping just to
+        // immediately wake up again.
+        self.receive_timer_messages();
+
+        // Create a buffer to read events into
+        let dst = unsafe {
+            slice::from_raw_parts_mut(self.events.as_mut_ptr(), self.events.capacity())
+        };
+
+        let expired = self.timers.expired();
+        if !expired.is_empty() {
+            return Ok(expired);
+        }
+
+        let timeout = self.timers.earliest_timeout(timeout_ms);
+        let count = try!(epoll_wait(self.epfd, dst, timeout as isize));
+
+        // Set the length of the vector to what was filled in by the call to epoll_wait
+        unsafe { self.events.set_len(count); }
+
+        let mut timer_rx_notification = false;
+        let mut notifications = Vec::with_capacity(count);
+        for e in self.events.iter() {
+            let id = e.data as usize;
+            if id == self.timer_rx.get_id() {
+                timer_rx_notification = true;
+            } else {
+                notifications.push(Notification {
+                    id: id,
+                    event: event_from_kind(e.events)
+                });
+            }
+        }
+        if timer_rx_notification {
+            self.receive_timer_messages();
+        }
+
+        let expired = self.timers.expired();
+        notifications.extend(expired);
+
+        Ok(notifications)
+    }
+
+    #[cfg(not(feature = "no_timerfd"))]
     fn receive_timer_messages(&mut self) -> Result<()> {
         while let Ok(msg) = self.timer_rx.try_recv() {
             match msg {
@@ -119,6 +196,28 @@ impl KernelPoller {
         Ok(())
     }
 
+    #[cfg(feature = "no_timerfd")]
+    fn receive_timer_messages(&mut self) {
+        while let Ok(msg) = self.timer_rx.try_recv() {
+            match msg {
+                TimerMsg::StartTimer {id, timeout_ms} => {
+                    let timer = TimerEntry::new(id, timeout_ms as u64, false);
+                    self.timers.insert(timer);
+                },
+                TimerMsg::StartInterval {id, timeout_ms} => {
+                    let timer = TimerEntry::new(id, timeout_ms as u64, true);
+                    self.timers.insert(timer);
+                },
+                TimerMsg::Cancel {id} => {
+                    // Removing the timer from the map will cause it to be dropped, which closes its fd
+                    // and subsequently removes it from epoll.
+                    self.timers.remove(id);
+                }
+            }
+        }
+    }
+
+    #[cfg(not(feature = "no_timerfd"))]
     fn handle_timer_notifications(&mut self, ids: Vec<usize>) -> Result<()> {
         for id in ids {
             let mut interval = false;
@@ -135,6 +234,7 @@ impl KernelPoller {
         return Ok(())
     }
 
+    #[cfg(not(feature = "no_timerfd"))]
     fn set_timer(&self, id: usize, timeout: usize, recurring: bool) -> Result<Timer> {
         let timer_fd = try!(TimerFd::new(timeout, recurring));
         let info = EpollEvent {

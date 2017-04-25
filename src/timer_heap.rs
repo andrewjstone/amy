@@ -1,6 +1,8 @@
 use std::collections::BinaryHeap;
 use std::cmp::{Ordering, Ord, PartialOrd, PartialEq};
 use std::time::{Instant, Duration};
+use event::Event;
+use notification::Notification;
 
 /// Store timers in a binary heap. Keep them sorted by which timer is going to expire first.
 pub struct TimerHeap {
@@ -57,23 +59,47 @@ impl TimerHeap {
                 return 0;
             }
             let duration = e.expires_at - now;
-            duration.as_secs()*1000 + (duration.subsec_nanos() / 1000000) as u64
+            // We add a millisecond if there is a fractional ms milliseconds in
+            // duration.subsec_nanos() / 1000000 so that we never fire early.
+            let nanos = duration.subsec_nanos() as u64;
+            // TODO: This can almost certainly be done faster
+            let subsec_ms = nanos / 1000000;
+            let mut remaining = duration.as_secs()*1000 + subsec_ms;
+            if subsec_ms * 1000000 < nanos {
+                remaining += 1;
+            }
+            remaining
         })
     }
 
-    /// Return all expired timer ids
+    /// Return the earliest timeout based on a user timeout and the least remaining time in the
+    /// next timer to fire.
+    pub fn earliest_timeout(&self, user_timeout_ms: usize) -> usize {
+        if let Some(remaining) = self.time_remaining() {
+            println!("TIME REMAINING = {:?}", remaining);
+            if user_timeout_ms < remaining as usize {
+                user_timeout_ms
+            } else {
+                remaining as usize
+            }
+        } else {
+            user_timeout_ms
+        }
+    }
+
+    /// Return all expired timer ids as Read notifications
     ///
     /// Any recurring timers will be re-added to the heap in the correct spot
-    pub fn expired(&mut self) -> Vec<usize> {
+    pub fn expired(&mut self) -> Vec<Notification> {
         self._expired(Instant::now())
     }
 
     /// A deterministically testable version of `expired()`
-    pub fn _expired(&mut self, now: Instant) -> Vec<usize> {
+    pub fn _expired(&mut self, now: Instant) -> Vec<Notification> {
         let mut expired = Vec::new();
         while let Some(mut popped) = self.timers.pop() {
             if popped.expires_at <= now {
-                expired.push(popped.id);
+                expired.push(Notification {id: popped.id, event: Event::Read});
                 if popped.recurring {
                     // We use the expired_at time so we don't keep skewing later and later
                     // by adding the duration to the current time.
@@ -90,7 +116,7 @@ impl TimerHeap {
 }
 
 #[derive(Eq, Debug)]
-struct TimerEntry {
+pub struct TimerEntry {
     recurring: bool,
     duration: Duration,
     expires_at: Instant,
@@ -98,7 +124,7 @@ struct TimerEntry {
 }
 
 impl TimerEntry {
-    fn new(id: usize, duration_ms: u64, recurring: bool) -> TimerEntry {
+    pub fn new(id: usize, duration_ms: u64, recurring: bool) -> TimerEntry {
         let duration = Duration::from_millis(duration_ms);
         TimerEntry {
             recurring: recurring,
