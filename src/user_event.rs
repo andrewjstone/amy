@@ -1,5 +1,8 @@
 use std::os::unix::io::{RawFd, AsRawFd};
-use std::io::{Result, Error};
+use std::io::Result;
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use std::io::Error;
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use std::mem;
@@ -103,13 +106,24 @@ impl UserEvent {
         self.id
     }
 
-    // Nothing to do on Kqueue based systems
+    // This call always succeeds. It returns a result for API compatibility with epoll.
+    pub fn try_clone(&self) -> Result<UserEvent> {
+        Ok(self.clone())
+    }
+
     pub fn clear(&self) -> Result<()> {
-        self.registrar.clear_user_event(&self).map_err(|e| Error::from(e))
+        self.registrar.clear_user_event(&self)
     }
 
     pub fn trigger(&self) -> Result<()> {
-        self.registrar.trigger_user_event(&self).map_err(|e| Error::from(e))
+        self.registrar.trigger_user_event(&self)
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+impl Drop for UserEvent {
+    fn drop(&mut self) {
+        let _ = self.registrar.deregister_user_event(self.id);
     }
 }
 

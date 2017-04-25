@@ -46,7 +46,7 @@ impl KernelPoller {
         let epfd = epoll_create()?;
         let registrations = Arc::new(AtomicUsize::new(0));
         let mut registrar = KernelRegistrar::new(epfd, registrations);
-        let (tx, rx) = channel(registrar.try_clone()?)?;
+        let (tx, rx) = channel(&mut registrar)?;
         registrar.timer_tx = Some(tx);
         Ok(KernelPoller {
             epfd: epfd,
@@ -62,7 +62,7 @@ impl KernelPoller {
         let epfd = epoll_create()?;
         let registrations = Arc::new(AtomicUsize::new(0));
         let mut registrar = KernelRegistrar::new(epfd, registrations);
-        let (tx, rx) = channel(registrar.try_clone()?)?;
+        let (tx, rx) = channel(&mut registrar)?;
         registrar.timer_tx = Some(tx);
         Ok(KernelPoller {
             epfd: epfd,

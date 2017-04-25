@@ -7,11 +7,9 @@ use std::os::unix::io::AsRawFd;
 use nix::sys::event::{kqueue, kevent, KEvent, EventFilter, FilterFlag};
 use nix::sys::event::{EV_ENABLE, EV_DELETE, EV_ADD, EV_ONESHOT, EV_CLEAR, EV_DISABLE, NOTE_TRIGGER};
 use libc::{uintptr_t, intptr_t};
-use nix::Result;
-
+use std::io::Result;
 use event::Event;
 use notification::Notification;
-use timer::Timer;
 use user_event::UserEvent;
 
 #[cfg(not(target_os = "netbsd"))]
@@ -32,7 +30,7 @@ pub struct KernelPoller {
 impl KernelPoller {
     pub fn new() -> Result<KernelPoller> {
         let kq = try!(kqueue());
-        let registrations = Arc::new(AtomicUsize::new(0));
+        let registrations = Arc::new(AtomicUsize::new(1));
         Ok(KernelPoller {
             kqueue: kq,
             registrar: KernelRegistrar::new(kq, registrations),
@@ -41,14 +39,16 @@ impl KernelPoller {
         })
     }
 
-    pub fn get_registrar(&self) -> KernelRegistrar {
-        self.registrar.clone()
+    // This will always succeed. We implement it this way for api compatibility with epoll.
+    pub fn get_registrar(&self) -> Result<KernelRegistrar> {
+        Ok(self.registrar.clone())
     }
 
     // Wait for kevents and return a list of Notifications. Coalesce reads and writes for the same
     // socket into a single notification. If only a read or a write event for a given socket is
     // present in the eventlist, check the registration to see if there is another kevent registered
-    // and remove it if so. We do this removal to prevent aliasing a pointer to the same registration      // structure.
+    //  and remove it if so. We do this removal to prevent aliasing a pointer to the same
+    // registration structure.
     pub fn wait(&mut self, timeout_ms: usize) -> Result<Vec<Notification>> {
 
         // Create a buffer to read events into
@@ -100,6 +100,11 @@ impl KernelRegistrar {
         }
     }
 
+    // This will always succeed. We implement this to provide api compatibility with epoll.
+    pub fn try_clone(&self) -> Result<KernelRegistrar> {
+        Ok(self.clone())
+    }
+
     pub fn register<T: AsRawFd>(&self, sock: &T, event: Event) -> Result<usize> {
         let sock_fd = sock.as_raw_fd();
         let id = self.total_registrations.fetch_add(1, Ordering::SeqCst);
@@ -149,33 +154,33 @@ impl KernelRegistrar {
         Ok(())
     }
 
-    pub fn deregister_user_event(&self, event: UserEvent) -> Result<()> {
-        let mut user_event = make_user_event(event.get_id());
+    pub fn deregister_user_event(&self, event_id: usize) -> Result<()> {
+        let mut user_event = make_user_event(event_id);
         user_event.flags = EV_DELETE;
         try!(kevent(self.kqueue, &vec![user_event], &mut[], 0));
         Ok(())
     }
 
-    pub fn set_timeout(&self, timeout: usize) -> Result<Timer> {
+    pub fn set_timeout(&self, timeout: usize) -> Result<usize> {
         self.set_timer(timeout, false)
     }
 
-    pub fn set_interval(&self, timeout: usize) -> Result<Timer> {
+    pub fn set_interval(&self, timeout: usize) -> Result<usize> {
         self.set_timer(timeout, true)
     }
 
-    pub fn cancel_timeout(&self, timer: Timer) -> Result<()> {
-        let mut timer = make_timer(timer.get_id(), 0, false);
+    pub fn cancel_timeout(&self, timer_id: usize) -> Result<()> {
+        let mut timer = make_timer(timer_id, 0, false);
         timer.flags = EV_DELETE;
         try!(kevent(self.kqueue, &vec![timer], &mut[], 0));
         Ok(())
     }
 
-    fn set_timer(&self, timeout: usize, recurring: bool) -> Result<Timer> {
+    fn set_timer(&self, timeout: usize, recurring: bool) -> Result<usize> {
         let id = self.total_registrations.fetch_add(1, Ordering::SeqCst);
         let changes = vec![make_timer(id, timeout, recurring)];
         try!(kevent(self.kqueue, &changes, &mut[], 0));
-        Ok(Timer {id: id, fd: 0})
+        Ok(id)
     }
 }
 

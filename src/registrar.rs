@@ -112,8 +112,8 @@ impl Registrar {
     /// and this can fail.
     ///
     /// When a Receiver is dropped it will become unregistered.
-    pub fn channel<T: Debug>(&self) -> Result<(Sender<T>, Receiver<T>)> {
-        channel(self.inner.try_clone()?)
+    pub fn channel<T: Debug>(&mut self) -> Result<(Sender<T>, Receiver<T>)> {
+        channel(&mut self.inner)
     }
 
     /// Create a synchronous mpsc channel where the Receiver is registered with the kernel poller.
@@ -130,7 +130,7 @@ impl Registrar {
     /// since the Receiver is being registered with the kernel poller and this can fail.
     ///
     /// When a Receiver is dropped it will become unregistered.
-    pub fn sync_channel<T: Debug>(&self, bound: usize) -> Result<(SyncSender<T>, Receiver<T>)> {
-        sync_channel(self.inner.try_clone()?, bound)
+    pub fn sync_channel<T: Debug>(&mut self, bound: usize) -> Result<(SyncSender<T>, Receiver<T>)> {
+        sync_channel(&mut self.inner, bound)
     }
 }
