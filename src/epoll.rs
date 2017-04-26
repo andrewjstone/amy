@@ -1,16 +1,22 @@
-use std::os::unix::io::{RawFd, AsRawFd, IntoRawFd};
+#[cfg(not(feature = "no_timerfd"))]
+use std::os::unix::io::IntoRawFd;
+#[cfg(not(feature = "no_timerfd"))]
+use timer::Timer;
+#[cfg(not(feature = "no_timerfd"))]
+use timerfd::TimerFd;
+#[cfg(not(feature = "no_timerfd"))]
+use std::collections::HashMap;
+
+use std::os::unix::io::{RawFd, AsRawFd};
 use std::slice;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::collections::HashMap;
 use nix::sys::epoll::*;
 use nix::sys::eventfd::{eventfd, EFD_CLOEXEC, EFD_NONBLOCK};
 use libc;
 use std::io::{Result, Error, ErrorKind};
 use event::Event;
 use notification::Notification;
-use timer::Timer;
-use timerfd::TimerFd;
 use user_event::UserEvent;
 use channel::{channel, Sender, Receiver};
 

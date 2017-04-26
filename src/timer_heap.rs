@@ -18,6 +18,7 @@ impl TimerHeap {
     }
 
     /// Return the number of timers in the heap
+    #[allow(dead_code)] // only used in tests right now
     pub fn len(&self) -> usize {
         self.timers.len()
     }
@@ -76,7 +77,6 @@ impl TimerHeap {
     /// next timer to fire.
     pub fn earliest_timeout(&self, user_timeout_ms: usize) -> usize {
         if let Some(remaining) = self.time_remaining() {
-            println!("TIME REMAINING = {:?}", remaining);
             if user_timeout_ms < remaining as usize {
                 user_timeout_ms
             } else {

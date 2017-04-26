@@ -19,6 +19,7 @@ mod channel;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 mod epoll;
 #[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(not(feature = "no_timerfd"))]
 mod timerfd;
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
