@@ -12,51 +12,53 @@ use epoll::KernelRegistrar;
           target_os = "netbsd", target_os = "openbsd"))]
 pub use kqueue::KernelRegistrar;
 
-pub fn channel<T: Debug>(mut registrar: KernelRegistrar) -> io::Result<(Sender<T>, Receiver<T>)> {
+pub fn channel<T: Debug>(registrar: &mut KernelRegistrar) -> io::Result<(Sender<T>, Receiver<T>)> {
     let (tx, rx) = mpsc::channel();
     let pending = Arc::new(AtomicUsize::new(0));
     let user_event = try!(registrar.register_user_event().map_err(|e| io::Error::from(e)));
 
+    let dup = try!(user_event.try_clone());
+
     let tx = Sender {
         tx: tx,
-        user_event: user_event.clone(),
+        user_event: user_event,
         pending: pending.clone()
     };
 
     let rx = Receiver {
         rx: rx,
-        user_event: user_event,
-        pending: pending,
-        registrar: registrar
+        user_event: dup,
+        pending: pending
     };
 
     Ok((tx, rx))
 }
 
-pub fn sync_channel<T: Debug>(mut registrar: KernelRegistrar,
+pub fn sync_channel<T: Debug>(registrar: &mut KernelRegistrar,
                               bound: usize) -> io::Result<(SyncSender<T>, Receiver<T>)> {
     let (tx, rx) = mpsc::sync_channel(bound);
     let pending = Arc::new(AtomicUsize::new(0));
     let user_event = try!(registrar.register_user_event().map_err(|e| io::Error::from(e)));
 
+    let dup = try!(user_event.try_clone());
+
     let tx = SyncSender {
         tx: tx,
-        user_event: user_event.clone(),
+        user_event: user_event,
         pending: pending.clone()
     };
 
     let rx = Receiver {
         rx: rx,
-        user_event: user_event,
-        pending: pending,
-        registrar: registrar
+        user_event: dup,
+        pending: pending
     };
 
     Ok((tx, rx))
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Sender<T: Debug> {
     tx: mpsc::Sender<T>,
     user_event: UserEvent,
@@ -72,9 +74,22 @@ impl<T: Debug> Sender<T> {
         }
         Ok(())
     }
+
+    pub fn try_clone(&self) -> io::Result<Sender<T>> {
+        Ok(Sender {
+            tx: self.tx.clone(),
+            user_event: self.user_event.try_clone()?,
+            pending: self.pending.clone()
+        })
+    }
+
+    // Return the poll id for the channel
+    pub fn get_id(&self) -> usize {
+        self.user_event.get_id()
+    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct SyncSender<T: Debug> {
     tx: mpsc::SyncSender<T>,
     user_event: UserEvent,
@@ -99,13 +114,25 @@ impl<T: Debug> SyncSender<T> {
         }
         Ok(())
     }
+
+    pub fn try_clone(&self) -> io::Result<SyncSender<T>> {
+        Ok(SyncSender {
+            tx: self.tx.clone(),
+            user_event: self.user_event.try_clone()?,
+            pending: self.pending.clone()
+        })
+    }
+
+    // Return the poll id for the channel
+    pub fn get_id(&self) -> usize {
+        self.user_event.get_id()
+    }
 }
 
 pub struct Receiver<T: Debug> {
     rx: mpsc::Receiver<T>,
     user_event: UserEvent,
-    pending: Arc<AtomicUsize>,
-    registrar: KernelRegistrar
+    pending: Arc<AtomicUsize>
 }
 
 impl<T: Debug> Receiver<T> {
@@ -131,16 +158,6 @@ impl<T: Debug> Receiver<T> {
 
     pub fn get_id(&self) -> usize {
         self.user_event.id
-    }
-}
-
-impl<T: Debug> Drop for Receiver<T> {
-    fn drop(&mut self) {
-        // Don't leak file descriptors. Note that the tx side will never get notified that the rx
-        // side is gone, so senders can leak. However, any attempt to send from a sender will show
-        // the receiver to be disconnected, so they can be cleaned up then, or ahead of time if it's
-        // known that the channel is going away.
-        let _ = self.registrar.deregister_user_event(self.user_event.clone());
     }
 }
 
@@ -175,4 +192,3 @@ impl<T> From<mpsc::TryRecvError> for ChannelError<T> {
         ChannelError::TryRecvError(e)
     }
 }
-

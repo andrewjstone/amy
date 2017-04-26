@@ -19,7 +19,12 @@ mod channel;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 mod epoll;
 #[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(not(feature = "no_timerfd"))]
 mod timerfd;
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(feature = "no_timerfd")]
+mod timer_heap;
 
 #[cfg(any(target_os = "bitrig", target_os = "dragonfly",
           target_os = "freebsd", target_os = "ios", target_os = "macos",

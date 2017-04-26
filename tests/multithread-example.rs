@@ -29,7 +29,7 @@ const DATA: &'static str = "Hello, World!\n";
 #[test]
 fn primary_example() {
     let poller = Poller::new().unwrap();
-    let registrar = poller.get_registrar();
+    let registrar = poller.get_registrar().unwrap();
     let (worker_tx, worker_rx) = channel();
     let (client_tx, client_rx) = channel();
     let (poller_tx, poller_rx) = channel();
@@ -99,7 +99,7 @@ fn run_poller(mut poller: Poller,
     assert_eq!(1, notifications.len());
     let notification = notifications.pop().unwrap();
     assert_eq!(Event::Read, notification.event);
-    assert_eq!(0, notification.id);
+    assert_eq!(1, notification.id);
 
     worker_tx.send(notification).unwrap();
 
@@ -114,7 +114,7 @@ fn run_poller(mut poller: Poller,
     assert_eq!(1, notifications.len());
     let notification = notifications.pop().unwrap();
     assert_eq!(Event::Read, notification.event);
-    assert_eq!(1, notification.id);
+    assert_eq!(2, notification.id);
 
     // Forward the notification to the worker
     worker_tx.send(notification).unwrap();
@@ -130,7 +130,7 @@ fn run_poller(mut poller: Poller,
     assert_eq!(1, notifications.len());
     let notification = notifications.pop().unwrap();
     assert_eq!(Event::Write, notification.event);
-    assert_eq!(1, notification.id);
+    assert_eq!(2, notification.id);
 
     // Forward the notification to the worker
     worker_tx.send(notification).unwrap();
@@ -155,8 +155,8 @@ fn run_worker(registrar: Registrar,
               poller_tx: Sender<()>) {
 
     let listener_id = registrar.register(&listener, Event::Read).unwrap();
-    // This is the first registered socket, so it's Id is 1
-    assert_eq!(0, listener_id);
+    // This is the first registered socket, so it's Id is 1. 0 is used by a channel internal to the poller.
+    assert_eq!(1, listener_id);
 
     // 1) Wait for a connection from the client to be noticed by the poller against the registered
     // listening socket. Then accept the connection and register it.
@@ -169,7 +169,7 @@ fn run_worker(registrar: Registrar,
     socket.set_nonblocking(true).unwrap();
     let socket_id = registrar.register(&socket, Event::Read).unwrap();
     // This is the second registration of a socket, so it's Id is 2.
-    assert_eq!(1, socket_id);
+    assert_eq!(2, socket_id);
 
     // Ensure when we accept again from the listener we get an ewouldblock
     if let Err(e) = listener.accept() {
