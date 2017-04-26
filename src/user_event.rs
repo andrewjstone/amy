@@ -118,12 +118,9 @@ impl UserEvent {
     pub fn trigger(&self) -> Result<()> {
         self.registrar.trigger_user_event(&self)
     }
-}
 
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
-impl Drop for UserEvent {
-    fn drop(&mut self) {
-        let _ = self.registrar.deregister_user_event(self.id);
+    pub fn deregister(&self) -> Result<()> {
+        self.registrar.deregister_user_event(self.id)
     }
 }
 

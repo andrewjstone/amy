@@ -161,6 +161,13 @@ impl<T: Debug> Receiver<T> {
     }
 }
 
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+impl<T: Debug> Drop for Receiver<T> {
+    fn drop(&mut self) {
+        let _ = self.user_event.deregister();
+    }
+}
+
 #[derive(Debug)]
 pub enum ChannelError<T> {
     SendError(mpsc::SendError<T>),
