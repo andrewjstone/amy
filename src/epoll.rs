@@ -314,7 +314,7 @@ impl KernelRegistrar {
         Ok(epoll_ctl(self.epfd, EpollOp::EpollCtlMod, sock_fd, &info)?)
     }
 
-    pub fn deregister<T: AsRawFd>(&self, sock: T) -> Result<()> {
+    pub fn deregister<T: AsRawFd>(&self, sock: &T) -> Result<()> {
         // info is unused by epoll on delete operations
         let info = EpollEvent {
             events: EpollEventKind::empty(),
@@ -340,7 +340,7 @@ impl KernelRegistrar {
         }
     }
 
-    pub fn deregister_user_event(&mut self, event: UserEvent) -> Result<()> {
+    pub fn deregister_user_event(&mut self, event: &UserEvent) -> Result<()> {
         self.deregister(event)
     }
 
