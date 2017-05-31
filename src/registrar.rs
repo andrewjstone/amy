@@ -51,12 +51,9 @@ impl Registrar {
 
     /// Remove a socket from a Poller
     ///
-    /// Note that ownership of the socket is taken here. Sockets should only be deregistered when
-    /// the caller is done with them.
-    ///
     /// Will return an error if the socket is not present in the poller when using epoll. Returns no
     /// error with kqueue.
-    pub fn deregister<T: AsRawFd>(&self, sock: T) -> Result<()> {
+    pub fn deregister<T: AsRawFd>(&self, sock: &T) -> Result<()> {
         self.inner.deregister(sock)
     }
 

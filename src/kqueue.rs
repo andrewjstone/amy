@@ -120,7 +120,7 @@ impl KernelRegistrar {
         Ok(())
     }
 
-    pub fn deregister<T: AsRawFd>(&self, sock: T) -> Result<()> {
+    pub fn deregister<T: AsRawFd>(&self, sock: &T) -> Result<()> {
         let sock_fd = sock.as_raw_fd();
         let mut changes = make_changelist(sock_fd, Event::Both, 0);
         for e in changes.iter_mut() {
