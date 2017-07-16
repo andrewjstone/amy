@@ -39,4 +39,4 @@ pub use line_reader::LineReader;
 pub use frame_reader::FrameReader;
 pub use frame_writer::FrameWriter;
 pub use timer::Timer;
-pub use channel::{channel, Sender, Receiver};
+pub use channel::{channel, Sender, Receiver, ChannelError};
