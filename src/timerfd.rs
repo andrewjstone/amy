@@ -7,7 +7,7 @@ use std::mem;
 use std::os::unix::io::{IntoRawFd, RawFd};
 use nix::{Error, Result};
 use nix::errno::Errno;
-use libc::{self, c_int, CLOCK_MONOTONIC, O_NONBLOCK, O_CLOEXEC, timespec};
+use libc::{self, c_int, CLOCK_MONOTONIC, O_NONBLOCK, O_CLOEXEC, timespec, time_t};
 
 static TFD_NONBLOCK: c_int = O_NONBLOCK;
 static TFD_CLOEXEC: c_int = O_CLOEXEC;
@@ -67,7 +67,7 @@ impl IntoRawFd for TimerFd {
 }
 
 fn arm_timer(fd: c_int, timeout: usize, recurring: bool) -> Result<()> {
-    let it_value = ms_to_timespec(timeout as i64);
+    let it_value = ms_to_timespec(timeout as time_t);
     let it_interval = if recurring {
         it_value.clone()
     } else {
@@ -89,7 +89,7 @@ fn arm_timer(fd: c_int, timeout: usize, recurring: bool) -> Result<()> {
     Ok(())
 }
 
-fn ms_to_timespec(timeout_in_ms: i64) -> timespec {
+fn ms_to_timespec(timeout_in_ms: time_t) -> timespec {
     timespec {
         tv_sec: timeout_in_ms / 1000,
         tv_nsec: (timeout_in_ms % 1000) * 1000 * 1000
