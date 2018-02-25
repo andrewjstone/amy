@@ -138,6 +138,7 @@ impl KernelRegistrar {
 
     pub fn trigger_user_event(&self, event: &UserEvent) -> Result<()> {
         let mut e = make_user_event(event.get_id());
+        set_flags(&mut e, EventFlag::EV_ENABLE);
         set_fflags(&mut e, FilterFlag::NOTE_TRIGGER);
         kevent(self.kqueue, &vec![e], &mut[], 0).map_err(nix_err_to_io_err)?;
         Ok(())
