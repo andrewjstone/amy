@@ -198,7 +198,7 @@ fn make_changelist(sock_fd: RawFd, event: Event, user_data: UserData) -> Vec<KEv
     let mut ev = KEvent::new(
         sock_fd as uintptr_t,
         EventFilter::EVFILT_READ,
-        EventFlag::EV_ADD,
+        EventFlag::EV_ADD | EventFlag::EV_CLEAR,
         FilterFlag::empty(),
         0,
         user_data
