@@ -40,3 +40,17 @@ pub use frame_reader::FrameReader;
 pub use frame_writer::FrameWriter;
 pub use timer::Timer;
 pub use channel::{channel, Sender, Receiver, ChannelError};
+
+use std::io::{self, ErrorKind};
+use nix::Error::Sys;
+
+fn nix_err_to_io_err(err: nix::Error) -> io::Error {
+    match err {
+        Sys(errno) => {
+            io::Error::from(errno)
+        }
+        _ => {
+            io::Error::new(ErrorKind::InvalidData, err)
+        }
+    }
+}

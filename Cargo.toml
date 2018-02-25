@@ -15,8 +15,7 @@ no_timerfd = []
 libc = "0.2"
 
 [dependencies.nix]
-version = "0.6"
-features = ["eventfd"]
+version = "0.10"
 
 [dev-dependencies]
 assert_matches = "1.0"

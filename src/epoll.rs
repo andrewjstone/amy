@@ -12,13 +12,15 @@ use std::slice;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use nix::sys::epoll::*;
-use nix::sys::eventfd::{eventfd, EFD_CLOEXEC, EFD_NONBLOCK};
+use nix::sys::epoll::EpollFlags;
+use nix::sys::eventfd::{eventfd, EfdFlags};
 use libc;
 use std::io::{Result, Error, ErrorKind};
 use event::Event;
 use notification::Notification;
 use user_event::UserEvent;
 use channel::{channel, Sender, Receiver};
+use nix_err_to_io_err;
 
 #[cfg(feature = "no_timerfd")]
 use timer_heap::{TimerHeap, TimerEntry};
@@ -49,7 +51,7 @@ impl KernelPoller {
 
     #[cfg(not(feature = "no_timerfd"))]
     pub fn new() -> Result<KernelPoller> {
-        let epfd = epoll_create()?;
+        let epfd = epoll_create().map_err(nix_err_to_io_err)?;
         let registrations = Arc::new(AtomicUsize::new(0));
         let mut registrar = KernelRegistrar::new(epfd, registrations);
         let (tx, rx) = channel(&mut registrar)?;
@@ -65,7 +67,7 @@ impl KernelPoller {
 
     #[cfg(feature = "no_timerfd")]
     pub fn new() -> Result<KernelPoller> {
-        let epfd = epoll_create()?;
+        let epfd = epoll_create().map_err(nix_err_to_io_err)?;
         let registrations = Arc::new(AtomicUsize::new(0));
         let mut registrar = KernelRegistrar::new(epfd, registrations);
         let (tx, rx) = channel(&mut registrar)?;
@@ -99,7 +101,7 @@ impl KernelPoller {
             slice::from_raw_parts_mut(self.events.as_mut_ptr(), self.events.capacity())
         };
 
-        let count = try!(epoll_wait(self.epfd, dst, timeout_ms as isize));
+        let count = epoll_wait(self.epfd, dst, timeout_ms as isize).map_err(nix_err_to_io_err)?;
 
         // Set the length of the vector to what was filled in by the call to epoll_wait
         unsafe { self.events.set_len(count); }
@@ -108,7 +110,7 @@ impl KernelPoller {
         let mut notifications = Vec::with_capacity(count);
         let mut timer_ids = Vec::new();
         for e in self.events.iter() {
-            let id = e.data as usize;
+            let id = e.data() as usize;
             if id == self.timer_rx.get_id() {
                 timer_rx_notification = true;
             } else {
@@ -117,7 +119,7 @@ impl KernelPoller {
                 }
                 notifications.push(Notification {
                     id: id,
-                    event: event_from_kind(e.events)
+                    event: event_from_flags(e.events())
                 });
             }
         }
@@ -152,7 +154,7 @@ impl KernelPoller {
         }
 
         let timeout = self.timers.earliest_timeout(timeout_ms);
-        let count = try!(epoll_wait(self.epfd, dst, timeout as isize));
+        let count = epoll_wait(self.epfd, dst, timeout as isize).map_err(nix_err_to_io_err)?;
 
         // Set the length of the vector to what was filled in by the call to epoll_wait
         unsafe { self.events.set_len(count); }
@@ -160,13 +162,13 @@ impl KernelPoller {
         let mut timer_rx_notification = false;
         let mut notifications = Vec::with_capacity(count);
         for e in self.events.iter() {
-            let id = e.data as usize;
+            let id = e.data() as usize;
             if id == self.timer_rx.get_id() {
                 timer_rx_notification = true;
             } else {
                 notifications.push(Notification {
                     id: id,
-                    event: event_from_kind(e.events)
+                    event: event_from_flags(e.events())
                 });
             }
         }
@@ -242,17 +244,14 @@ impl KernelPoller {
 
     #[cfg(not(feature = "no_timerfd"))]
     fn set_timer(&self, id: usize, timeout: usize, recurring: bool) -> Result<Timer> {
-        let timer_fd = try!(TimerFd::new(timeout, recurring));
-        let info = EpollEvent {
-            events: kind_from_event(Event::Read),
-            data: id as u64
-        };
+        let timer_fd = TimerFd::new(timeout, recurring).map_err(nix_err_to_io_err)?;
+        let mut info = EpollEvent::new(flags_from_event(Event::Read), id as u64);
         let fd = timer_fd.into_raw_fd();
-        match epoll_ctl(self.epfd, EpollOp::EpollCtlAdd, fd, &info) {
+        match epoll_ctl(self.epfd, EpollOp::EpollCtlAdd, fd, &mut info) {
             Ok(_) => Ok(Timer {fd: fd, interval: recurring}),
             Err(e) => {
                 let _ = unsafe { libc::close(fd) };
-                Err(e.into())
+                Err(nix_err_to_io_err(e))
             }
         }
     }
@@ -296,46 +295,34 @@ impl KernelRegistrar {
     pub fn register<T: AsRawFd>(&self, sock: &T, event: Event) -> Result<usize> {
         let sock_fd = sock.as_raw_fd();
         let id = self.total_registrations.fetch_add(1, Ordering::SeqCst);
-        let info = EpollEvent {
-            events: kind_from_event(event),
-            data: id as u64
-        };
+        let mut info = EpollEvent::new(flags_from_event(event), id as u64);
 
-        try!(epoll_ctl(self.epfd, EpollOp::EpollCtlAdd, sock_fd, &info));
+        epoll_ctl(self.epfd, EpollOp::EpollCtlAdd, sock_fd, &mut info).map_err(nix_err_to_io_err)?;
         Ok(id)
     }
 
     pub fn reregister<T: AsRawFd>(&self, id: usize, sock: &T, event: Event) -> Result<()> {
         let sock_fd = sock.as_raw_fd();
-        let info = EpollEvent {
-            events: kind_from_event(event),
-            data: id as u64
-        };
-        Ok(epoll_ctl(self.epfd, EpollOp::EpollCtlMod, sock_fd, &info)?)
+        let mut info = EpollEvent::new(flags_from_event(event), id as u64);
+        Ok(epoll_ctl(self.epfd, EpollOp::EpollCtlMod, sock_fd, &mut info).map_err(nix_err_to_io_err)?)
     }
 
     pub fn deregister<T: AsRawFd>(&self, sock: &T) -> Result<()> {
         // info is unused by epoll on delete operations
-        let info = EpollEvent {
-            events: EpollEventKind::empty(),
-            data: 0
-        };
+        let mut info = EpollEvent::empty();
         let sock_fd = sock.as_raw_fd();
-        Ok(epoll_ctl(self.epfd, EpollOp::EpollCtlDel, sock_fd, &info)?)
+        Ok(epoll_ctl(self.epfd, EpollOp::EpollCtlDel, sock_fd, &mut info).map_err(nix_err_to_io_err)?)
     }
 
     pub fn register_user_event(&mut self) -> Result<UserEvent> {
-        let fd = try!(eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK));
+        let fd = eventfd(0, EfdFlags::EFD_CLOEXEC | EfdFlags::EFD_NONBLOCK).map_err(nix_err_to_io_err)?;
         let id = self.total_registrations.fetch_add(1, Ordering::SeqCst);
-        let info = EpollEvent {
-            events: kind_from_event(Event::Read),
-            data: id as u64
-        };
-        match epoll_ctl(self.epfd, EpollOp::EpollCtlAdd, fd, &info) {
+        let mut info = EpollEvent::new(flags_from_event(Event::Read), id as u64);
+        match epoll_ctl(self.epfd, EpollOp::EpollCtlAdd, fd, &mut info) {
             Ok(_) => Ok(UserEvent {id: id, fd: fd}),
             Err(e) => {
                 let _ = unsafe { libc::close(fd) };
-                Err(e.into())
+                Err(nix_err_to_io_err(e))
             }
         }
     }
@@ -365,31 +352,31 @@ impl KernelRegistrar {
     }
 }
 
-fn event_from_kind(kind: EpollEventKind) -> Event {
+fn event_from_flags(flags: EpollFlags) -> Event {
     let mut event = Event::Read;
-    if kind.contains(EPOLLIN) && kind.contains(EPOLLOUT) {
+    if flags.contains(EpollFlags::EPOLLIN) && flags.contains(EpollFlags::EPOLLOUT) {
         event = Event::Both;
-    } else if kind.contains(EPOLLOUT) {
+    } else if flags.contains(EpollFlags::EPOLLOUT) {
         event = Event::Write;
     }
     event
 }
 
-fn kind_from_event(event: Event) -> EpollEventKind {
-    let mut kind = EpollEventKind::empty();
+fn flags_from_event(event: Event) -> EpollFlags {
+    let mut flags = EpollFlags::empty();
     match event {
         Event::Read => {
-            kind.insert(EPOLLIN);
+            flags.insert(EpollFlags::EPOLLIN);
         },
         Event::Write => {
-            kind.insert(EPOLLOUT);
+            flags.insert(EpollFlags::EPOLLOUT);
         },
         Event::Both => {
-            kind.insert(EPOLLIN);
-            kind.insert(EPOLLOUT);
+            flags.insert(EpollFlags::EPOLLIN);
+            flags.insert(EpollFlags::EPOLLOUT);
         }
     }
     // All events are edge triggered
-    kind.insert(EPOLLET);
-    kind
+    flags.insert(EpollFlags::EPOLLET);
+    flags
 }
