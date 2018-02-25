@@ -195,10 +195,10 @@ fn event_from_filter(filter: EventFilter) -> Event {
 // reads and writes on the same socket. We create the proper number of KEvents based on the enum
 // variant in the `event` paramter.
 fn make_changelist(sock_fd: RawFd, event: Event, user_data: UserData) -> Vec<KEvent> {
-    let ev = KEvent::new(
+    let mut ev = KEvent::new(
         sock_fd as uintptr_t,
         EventFilter::EVFILT_READ,
-         EventFlag::EV_ADD,
+        EventFlag::EV_ADD,
         FilterFlag::empty(),
         0,
         user_data
@@ -207,6 +207,7 @@ fn make_changelist(sock_fd: RawFd, event: Event, user_data: UserData) -> Vec<KEv
     match event {
         Event::Read => vec![ev],
         Event::Write => {
+            set_filter(&mut ev, EventFilter::EVFILT_WRITE);
             vec![KEvent::new(ev.ident(), EventFilter::EVFILT_WRITE, ev.flags(), ev.fflags(), ev.data(), ev.udata())]
         },
         Event::Both => vec![ev, KEvent::new(ev.ident(), EventFilter::EVFILT_WRITE, ev.flags(), ev.fflags(), ev.data(), ev.udata())]
@@ -222,6 +223,14 @@ fn make_user_event(id: usize) -> KEvent {
         0,
         id as UserData
     )
+}
+
+fn set_filter(e: &mut KEvent, filter: EventFilter) {
+    let ident = e.ident();
+    let flags = e.flags();
+    let fflags = e.fflags();
+    let udata = e.udata();
+    ev_set(e, ident, filter, flags, fflags, udata);
 }
 
 fn set_flags(e: &mut KEvent, flags: EventFlag) {
