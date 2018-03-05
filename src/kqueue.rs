@@ -4,18 +4,14 @@ use std::slice;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::os::unix::io::AsRawFd;
-use nix::sys::event::{kqueue, kevent, KEvent, EventFilter, FilterFlag};
-use nix::sys::event::{EV_ENABLE, EV_DELETE, EV_ADD, EV_ONESHOT, EV_CLEAR, EV_DISABLE, NOTE_TRIGGER};
+use nix::sys::event::{ev_set, kqueue, kevent, KEvent, EventFilter, EventFlag, FilterFlag};
 use libc::{uintptr_t, intptr_t};
 use std::io::Result;
 use event::Event;
 use notification::Notification;
 use user_event::UserEvent;
+use nix_err_to_io_err;
 
-#[cfg(not(target_os = "netbsd"))]
-type UserData = usize;
-
-#[cfg(target_os = "netbsd")]
 type UserData = intptr_t;
 
 static KQUEUE_EVENT_SIZE: usize = 1024;
@@ -29,7 +25,7 @@ pub struct KernelPoller {
 
 impl KernelPoller {
     pub fn new() -> Result<KernelPoller> {
-        let kq = try!(kqueue());
+        let kq = kqueue().map_err(nix_err_to_io_err)?;
         let registrations = Arc::new(AtomicUsize::new(1));
         Ok(KernelPoller {
             kqueue: kq,
@@ -56,7 +52,7 @@ impl KernelPoller {
             slice::from_raw_parts_mut(self.eventlist.as_mut_ptr(), self.eventlist.capacity())
         };
 
-        let count = try!(kevent(self.kqueue, &[], dst, timeout_ms));
+        let count = kevent(self.kqueue, &[], dst, timeout_ms).map_err(nix_err_to_io_err)?;
 
         // Set the length of the vector to the number of events that was returned by kevent
         unsafe { self.eventlist.set_len(count); }
@@ -68,13 +64,13 @@ impl KernelPoller {
     // Combine read and write events for the same socket into a single notification.
     fn coalesce_events(&mut self) {
         for e in self.eventlist.drain(..) {
-            let event = event_from_filter(e.filter);
+            let event = event_from_filter(e.filter());
             let new_notification = Notification {
-                id: e.udata as usize,
+                id: e.udata() as usize,
                 event: event.clone()
             };
 
-            let mut notification = self.notifications.entry(e.ident as RawFd)
+            let mut notification = self.notifications.entry(e.ident() as RawFd)
                                                      .or_insert(new_notification);
             if notification.event != event {
                 notification.event = Event::Both
@@ -104,14 +100,14 @@ impl KernelRegistrar {
         let sock_fd = sock.as_raw_fd();
         let id = self.total_registrations.fetch_add(1, Ordering::SeqCst);
         let changes = make_changelist(sock_fd, event, id as UserData);
-        try!(kevent(self.kqueue, &changes, &mut[], 0));
+        kevent(self.kqueue, &changes, &mut[], 0).map_err(nix_err_to_io_err)?;
         Ok(id)
     }
 
     pub fn reregister<T: AsRawFd>(&self, id: usize, sock: &T, event: Event) -> Result<()> {
         let sock_fd = sock.as_raw_fd();
         let changes = make_changelist(sock_fd, event, id as UserData);
-        try!(kevent(self.kqueue, &changes, &mut[], 0));
+        kevent(self.kqueue, &changes, &mut[], 0).map_err(nix_err_to_io_err)?;
         Ok(())
     }
 
@@ -119,7 +115,7 @@ impl KernelRegistrar {
         let sock_fd = sock.as_raw_fd();
         let mut changes = make_changelist(sock_fd, Event::Both, 0);
         for e in changes.iter_mut() {
-            e.flags = EV_DELETE
+            set_flags(e, EventFlag::EV_DELETE);
         }
         // Just ignore errors because, one of the events may not be present, but the deregister
         // signature ignores that fact. At this point, ownership of the socket is taken so it's
@@ -131,28 +127,29 @@ impl KernelRegistrar {
     pub fn register_user_event(&mut self) -> Result<UserEvent> {
         let id = self.total_registrations.fetch_add(1, Ordering::SeqCst);
         let changes = vec![make_user_event(id)];
-        try!(kevent(self.kqueue, &changes, &mut[], 0));
+        kevent(self.kqueue, &changes, &mut[], 0).map_err(nix_err_to_io_err)?;
         Ok(UserEvent {id: id, registrar: self.clone()})
     }
 
     pub fn trigger_user_event(&self, event: &UserEvent) -> Result<()> {
-        let mut user_event = make_user_event(event.get_id());
-        user_event.fflags = NOTE_TRIGGER;
-        try!(kevent(self.kqueue, &vec![user_event], &mut[], 0));
+        let mut e = make_user_event(event.get_id());
+        set_flags(&mut e, EventFlag::EV_ENABLE);
+        set_fflags(&mut e, FilterFlag::NOTE_TRIGGER);
+        kevent(self.kqueue, &vec![e], &mut[], 0).map_err(nix_err_to_io_err)?;
         Ok(())
     }
 
     pub fn clear_user_event(&self, event: &UserEvent) -> Result<()> {
         let mut user_event = make_user_event(event.get_id());
-        user_event.flags = EV_DISABLE;
-        try!(kevent(self.kqueue, &vec![user_event], &mut[], 0));
+        set_flags(&mut user_event, EventFlag::EV_DISABLE);
+        kevent(self.kqueue, &vec![user_event], &mut[], 0).map_err(nix_err_to_io_err)?;
         Ok(())
     }
 
     pub fn deregister_user_event(&self, event_id: usize) -> Result<()> {
         let mut user_event = make_user_event(event_id);
-        user_event.flags = EV_DELETE;
-        try!(kevent(self.kqueue, &vec![user_event], &mut[], 0));
+        set_flags(&mut user_event, EventFlag::EV_DELETE);
+        kevent(self.kqueue, &vec![user_event], &mut[], 0).map_err(nix_err_to_io_err)?;
         Ok(())
     }
 
@@ -165,16 +162,16 @@ impl KernelRegistrar {
     }
 
     pub fn cancel_timeout(&self, timer_id: usize) -> Result<()> {
-        let mut timer = make_timer(timer_id, 0, false);
-        timer.flags = EV_DELETE;
-        try!(kevent(self.kqueue, &vec![timer], &mut[], 0));
+        let mut e = make_timer(timer_id, 0, false);
+        set_flags(&mut e, EventFlag::EV_DELETE);
+        kevent(self.kqueue, &vec![e], &mut[], 0).map_err(nix_err_to_io_err)?;
         Ok(())
     }
 
     fn set_timer(&self, timeout: usize, recurring: bool) -> Result<usize> {
         let id = self.total_registrations.fetch_add(1, Ordering::SeqCst);
         let changes = vec![make_timer(id, timeout, recurring)];
-        try!(kevent(self.kqueue, &changes, &mut[], 0));
+        kevent(self.kqueue, &changes, &mut[], 0).map_err(nix_err_to_io_err)?;
         Ok(id)
     }
 }
@@ -194,47 +191,72 @@ fn event_from_filter(filter: EventFilter) -> Event {
 // reads and writes on the same socket. We create the proper number of KEvents based on the enum
 // variant in the `event` paramter.
 fn make_changelist(sock_fd: RawFd, event: Event, user_data: UserData) -> Vec<KEvent> {
-    let mut ev = KEvent {
-        ident: sock_fd as uintptr_t,
-        filter: EventFilter::EVFILT_READ,
-        flags: EV_ADD,
-        fflags: FilterFlag::empty(),
-        data: 0,
-        udata: user_data
-    };
+    let mut ev = KEvent::new(
+        sock_fd as uintptr_t,
+        EventFilter::EVFILT_READ,
+        EventFlag::EV_ADD | EventFlag::EV_CLEAR,
+        FilterFlag::empty(),
+        0,
+        user_data
+    );
 
     match event {
         Event::Read => vec![ev],
         Event::Write => {
-            ev.filter = EventFilter::EVFILT_WRITE;
+            set_filter(&mut ev, EventFilter::EVFILT_WRITE);
             vec![ev]
         },
-        Event::Both => vec![ev, KEvent { filter: EventFilter::EVFILT_WRITE, .. ev }]
+        Event::Both => vec![ev, KEvent::new(ev.ident(), EventFilter::EVFILT_WRITE, ev.flags(), ev.fflags(), ev.data(), ev.udata())]
     }
 }
 
 fn make_user_event(id: usize) -> KEvent {
-    KEvent {
-        ident: id as uintptr_t,
-        filter: EventFilter::EVFILT_USER,
-        flags: EV_ADD | EV_CLEAR | EV_ENABLE,
-        fflags: FilterFlag::empty(),
-        data: 0,
-        udata: id as UserData
-    }
+    KEvent::new(
+        id as uintptr_t,
+        EventFilter::EVFILT_USER,
+        EventFlag::EV_ADD | EventFlag::EV_CLEAR | EventFlag::EV_ENABLE,
+        FilterFlag::empty(),
+        0,
+        id as UserData
+    )
+}
+
+fn set_filter(e: &mut KEvent, filter: EventFilter) {
+    let ident = e.ident();
+    let flags = e.flags();
+    let fflags = e.fflags();
+    let udata = e.udata();
+    ev_set(e, ident, filter, flags, fflags, udata);
+}
+
+fn set_flags(e: &mut KEvent, flags: EventFlag) {
+    let ident = e.ident();
+    let filter = e.filter();
+    let fflags = e.fflags();
+    let udata = e.udata();
+    ev_set(e, ident, filter, flags, fflags, udata);
+}
+
+fn set_fflags(e: &mut KEvent, fflags: FilterFlag) {
+    let ident = e.ident();
+    let filter = e.filter();
+    let flags = e.flags();
+    let udata = e.udata();
+    ev_set(e, ident, filter, flags, fflags, udata);
 }
 
 fn make_timer(id: usize, timeout: usize, recurring: bool) -> KEvent {
-    let mut ev = KEvent {
-        ident: id as uintptr_t,
-        filter: EventFilter::EVFILT_TIMER,
-        flags: EV_ADD,
-        fflags: FilterFlag::empty(), // timeouts are in ms by default
-        data: timeout as intptr_t,
-        udata: id as UserData
-    };
+    let mut flags = EventFlag::EV_ADD;
     if !recurring {
-        ev.flags = ev.flags | EV_ONESHOT
+        flags |= EventFlag::EV_ONESHOT;
     }
+    let ev = KEvent::new(
+        id as uintptr_t,
+        EventFilter::EVFILT_TIMER,
+        flags,
+        FilterFlag::empty(), // timeouts are in ms by default
+        timeout as intptr_t,
+        id as UserData
+    );
     ev
 }
