@@ -29,7 +29,7 @@ const DATA: &'static str = "Hello, World!\n";
 #[test]
 fn primary_example() {
     let poller = Poller::new().unwrap();
-    let registrar = poller.get_registrar().unwrap();
+    let registrar = poller.get_registrar();
     let (worker_tx, worker_rx) = channel();
     let (client_tx, client_rx) = channel();
     let (poller_tx, poller_rx) = channel();

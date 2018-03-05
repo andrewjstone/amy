@@ -14,19 +14,17 @@ pub use kqueue::KernelRegistrar;
 pub fn channel<T>(registrar: &mut KernelRegistrar) -> io::Result<(Sender<T>, Receiver<T>)> {
     let (tx, rx) = mpsc::channel();
     let pending = Arc::new(AtomicUsize::new(0));
-    let user_event = try!(registrar.register_user_event().map_err(|e| io::Error::from(e)));
-
-    let dup = try!(user_event.try_clone());
+    let user_event = Arc::new(registrar.register_user_event().map_err(|e| io::Error::from(e))?);
 
     let tx = Sender {
         tx: tx,
-        user_event: user_event,
+        user_event: user_event.clone(),
         pending: pending.clone()
     };
 
     let rx = Receiver {
         rx: rx,
-        user_event: dup,
+        user_event: user_event,
         pending: pending
     };
 
@@ -37,19 +35,17 @@ pub fn sync_channel<T>(registrar: &mut KernelRegistrar,
                        bound: usize) -> io::Result<(SyncSender<T>, Receiver<T>)> {
     let (tx, rx) = mpsc::sync_channel(bound);
     let pending = Arc::new(AtomicUsize::new(0));
-    let user_event = try!(registrar.register_user_event().map_err(|e| io::Error::from(e)));
-
-    let dup = try!(user_event.try_clone());
+    let user_event = Arc::new(registrar.register_user_event().map_err(|e| io::Error::from(e))?);
 
     let tx = SyncSender {
         tx: tx,
-        user_event: user_event,
+        user_event: user_event.clone(),
         pending: pending.clone()
     };
 
     let rx = Receiver {
         rx: rx,
-        user_event: dup,
+        user_event: user_event,
         pending: pending
     };
 
@@ -57,10 +53,10 @@ pub fn sync_channel<T>(registrar: &mut KernelRegistrar,
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Sender<T> {
     tx: mpsc::Sender<T>,
-    user_event: UserEvent,
+    user_event: Arc<UserEvent>,
     pending: Arc<AtomicUsize>
 }
 
@@ -74,24 +70,16 @@ impl<T> Sender<T> {
         Ok(())
     }
 
-    pub fn try_clone(&self) -> io::Result<Sender<T>> {
-        Ok(Sender {
-            tx: self.tx.clone(),
-            user_event: self.user_event.try_clone()?,
-            pending: self.pending.clone()
-        })
-    }
-
     // Return the poll id for the channel
     pub fn get_id(&self) -> usize {
         self.user_event.get_id()
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SyncSender<T> {
     tx: mpsc::SyncSender<T>,
-    user_event: UserEvent,
+    user_event: Arc<UserEvent>,
     pending: Arc<AtomicUsize>
 }
 
@@ -114,14 +102,6 @@ impl<T> SyncSender<T> {
         Ok(())
     }
 
-    pub fn try_clone(&self) -> io::Result<SyncSender<T>> {
-        Ok(SyncSender {
-            tx: self.tx.clone(),
-            user_event: self.user_event.try_clone()?,
-            pending: self.pending.clone()
-        })
-    }
-
     // Return the poll id for the channel
     pub fn get_id(&self) -> usize {
         self.user_event.get_id()
@@ -130,7 +110,7 @@ impl<T> SyncSender<T> {
 
 pub struct Receiver<T> {
     rx: mpsc::Receiver<T>,
-    user_event: UserEvent,
+    user_event: Arc<UserEvent>,
     pending: Arc<AtomicUsize>
 }
 

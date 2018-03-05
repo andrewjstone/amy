@@ -40,8 +40,8 @@ impl KernelPoller {
     }
 
     // This will always succeed. We implement it this way for api compatibility with epoll.
-    pub fn get_registrar(&self) -> Result<KernelRegistrar> {
-        Ok(self.registrar.clone())
+    pub fn get_registrar(&self) -> KernelRegistrar {
+        self.registrar.clone()
     }
 
     // Wait for kevents and return a list of Notifications. Coalesce reads and writes for the same
@@ -98,11 +98,6 @@ impl KernelRegistrar {
             kqueue: kq,
             total_registrations: registrations
         }
-    }
-
-    // This will always succeed. We implement this to provide api compatibility with epoll.
-    pub fn try_clone(&self) -> Result<KernelRegistrar> {
-        Ok(self.clone())
     }
 
     pub fn register<T: AsRawFd>(&self, sock: &T, event: Event) -> Result<usize> {

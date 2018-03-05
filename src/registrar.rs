@@ -17,7 +17,7 @@ pub use kqueue::KernelRegistrar;
 /// A Registrar is tied to a Poller of the same type, and registers sockets and unique IDs for those
 /// sockets as userdata that can be waited on by the poller. A Registar should only be retrieved via
 /// a call to Poller::get_registrar(&self), and not created on it's own.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Registrar {
     inner: KernelRegistrar
 }
@@ -29,12 +29,6 @@ impl Registrar {
         Registrar {
             inner: inner
         }
-    }
-
-    pub fn try_clone(&self) -> Result<Registrar> {
-        Ok(Registrar {
-            inner: self.inner.try_clone()?
-        })
     }
 
     /// Register a socket for a given event type, with a Poller and return it's unique ID

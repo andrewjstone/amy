@@ -79,10 +79,8 @@ impl KernelPoller {
         })
     }
 
-
-
-    pub fn get_registrar(&self) -> Result<KernelRegistrar> {
-        self.registrar.try_clone()
+    pub fn get_registrar(&self) -> KernelRegistrar {
+        self.registrar.clone()
     }
 
     /// Wait for epoll events. Return a list of notifications. Notifications contain user data
@@ -258,7 +256,7 @@ impl KernelPoller {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct KernelRegistrar {
     epfd: RawFd,
     total_registrations: Arc<AtomicUsize>,
@@ -278,19 +276,6 @@ impl KernelRegistrar {
             total_registrations: registrations,
             timer_tx: None
         }
-    }
-
-    pub fn try_clone(&self) -> Result<KernelRegistrar> {
-        let timer_tx = if let Some(ref tx) = self.timer_tx {
-            Some(tx.try_clone()?)
-        } else {
-            None
-        };
-        Ok(KernelRegistrar {
-            epfd: self.epfd,
-            total_registrations: self.total_registrations.clone(),
-            timer_tx: timer_tx
-        })
     }
 
     pub fn register<T: AsRawFd>(&self, sock: &T, event: Event) -> Result<usize> {
