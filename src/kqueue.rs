@@ -209,7 +209,7 @@ fn make_changelist(sock_fd: RawFd, event: Event, user_data: UserData) -> Vec<KEv
         Event::Read => vec![ev],
         Event::Write => {
             set_filter(&mut ev, EventFilter::EVFILT_WRITE);
-            vec![KEvent::new(ev.ident(), EventFilter::EVFILT_WRITE, ev.flags(), ev.fflags(), ev.data(), ev.udata())]
+            vec![ev]
         },
         Event::Both => vec![ev, KEvent::new(ev.ident(), EventFilter::EVFILT_WRITE, ev.flags(), ev.fflags(), ev.data(), ev.udata())]
     }
