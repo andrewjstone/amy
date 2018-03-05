@@ -53,11 +53,21 @@ pub fn sync_channel<T>(registrar: &mut KernelRegistrar,
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Sender<T> {
     tx: mpsc::Sender<T>,
     user_event: Arc<UserEvent>,
     pending: Arc<AtomicUsize>
+}
+
+impl<T> Clone for Sender<T> {
+    fn clone(&self) -> Sender<T> {
+        Sender {
+            tx: self.tx.clone(),
+            user_event: self.user_event.clone(),
+            pending: self.pending.clone()
+        }
+    }
 }
 
 impl<T> Sender<T> {
