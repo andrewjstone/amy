@@ -7,7 +7,7 @@ use amy::{Poller, Event};
 #[test]
 fn send_wakes_poller() {
     let mut poller = Poller::new().unwrap();
-    let mut registrar = poller.get_registrar().unwrap();
+    let mut registrar = poller.get_registrar();
     let (tx, rx) = registrar.channel().unwrap();
 
     // no notifications if nothing is registered
@@ -29,7 +29,7 @@ fn send_wakes_poller() {
 #[test]
 fn multiple_sends_wake_poller_once() {
     let mut poller = Poller::new().unwrap();
-    let mut registrar = poller.get_registrar().unwrap();
+    let mut registrar = poller.get_registrar();
     let (tx, rx) = registrar.channel().unwrap();
 
     tx.send("a").unwrap();
@@ -48,7 +48,7 @@ fn multiple_sends_wake_poller_once() {
 #[test]
 fn send_before_poll_and_after_poll_but_before_recv_only_wakes_poller_once() {
     let mut poller = Poller::new().unwrap();
-    let mut registrar = poller.get_registrar().unwrap();
+    let mut registrar = poller.get_registrar();
     let (tx, rx) = registrar.channel().unwrap();
 
     tx.send("a").unwrap();
@@ -72,7 +72,7 @@ fn send_before_poll_and_after_poll_but_before_recv_only_wakes_poller_once() {
 #[test]
 fn send_after_receive_after_poll_followed_by_recv_wakes_poller_again() {
     let mut poller = Poller::new().unwrap();
-    let mut registrar = poller.get_registrar().unwrap();
+    let mut registrar = poller.get_registrar();
     let (tx, rx) = registrar.channel().unwrap();
 
     tx.send("a").unwrap();
@@ -99,7 +99,7 @@ fn send_after_receive_after_poll_followed_by_recv_wakes_poller_again() {
 #[test]
 fn send_after_receive_after_poll_followed_by_recv_until_err_doesnt_wake_polller_again() {
     let mut poller = Poller::new().unwrap();
-    let mut registrar = poller.get_registrar().unwrap();
+    let mut registrar = poller.get_registrar();
     let (tx, rx) = registrar.channel().unwrap();
 
     tx.send("a").unwrap();
@@ -126,7 +126,7 @@ fn send_after_receive_after_poll_followed_by_recv_until_err_doesnt_wake_polller_
 /// Ensure that when the user event is cleared that retriggering it wakes the poller
 fn send_poll_receive_twice_then_send_poll_receive_once() {
     let mut poller = Poller::new().unwrap();
-    let mut registrar = poller.get_registrar().unwrap();
+    let mut registrar = poller.get_registrar();
     let (tx, rx) = registrar.channel().unwrap();
 
     tx.send("a").unwrap();
@@ -148,7 +148,7 @@ fn send_poll_receive_twice_then_send_poll_receive_once() {
 #[test]
 fn simple_sync_channel_test() {
     let mut poller = Poller::new().unwrap();
-    let mut registrar = poller.get_registrar().unwrap();
+    let mut registrar = poller.get_registrar();
     let (tx, rx) = registrar.sync_channel(1).unwrap();
 
     // no notifications if nothing is registered

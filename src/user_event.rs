@@ -29,19 +29,6 @@ impl UserEvent {
         self.id
     }
 
-    pub fn try_clone(&self) -> Result<UserEvent> {
-        unsafe {
-            let fd = libc::dup(self.fd);
-            if fd < 0 {
-                return Err(Error::last_os_error());
-            }
-            Ok(UserEvent {
-                id: self.id,
-                fd: fd
-            })
-        }
-    }
-
     pub fn clear(&self) -> Result<()> {
         let buf: u64 = 0;
         unsafe {
@@ -104,11 +91,6 @@ pub struct UserEvent {
 impl UserEvent {
     pub fn get_id(&self) -> usize {
         self.id
-    }
-
-    // This call always succeeds. It returns a result for API compatibility with epoll.
-    pub fn try_clone(&self) -> Result<UserEvent> {
-        Ok(self.clone())
     }
 
     pub fn clear(&self) -> Result<()> {

@@ -17,7 +17,7 @@ const FINAL_POLL_TIMEOUT: usize = 250; // ms
 #[test]
 fn test_set_timeout() {
     let mut poller = Poller::new().unwrap();
-    let registrar = poller.get_registrar().unwrap();
+    let registrar = poller.get_registrar();
     let now = Instant::now();
     let timer_id = registrar.set_timeout(TIMEOUT).unwrap();
     let notifications = poller.wait(POLL_TIMEOUT).unwrap();
@@ -31,7 +31,7 @@ fn test_set_timeout() {
 #[test]
 fn test_set_interval() {
     let mut poller = Poller::new().unwrap();
-    let registrar = poller.get_registrar().unwrap();
+    let registrar = poller.get_registrar();
     let timer_id = registrar.set_interval(TIMEOUT).unwrap();
     let now = Instant::now();
     for i in 1..5 {

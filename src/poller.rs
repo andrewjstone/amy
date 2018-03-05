@@ -23,9 +23,9 @@ pub struct Poller {
 
 impl Poller {
     pub fn new() -> Result<Poller> {
-        let inner = try!(KernelPoller::new());
+        let inner = KernelPoller::new()?;
         Ok(Poller {
-            registrar: Registrar::new(inner.get_registrar()?),
+            registrar: Registrar::new(inner.get_registrar()),
             inner: inner
         })
     }
@@ -33,8 +33,8 @@ impl Poller {
     /// Return a Registrar that can be used to register Sockets with a Poller.
     ///
     /// Registrars are cloneable and can be used on a different thread from the Poller.
-    pub fn get_registrar(&self) -> Result<Registrar> {
-        self.registrar.try_clone()
+    pub fn get_registrar(&self) -> Registrar {
+        self.registrar.clone()
     }
 
     /// Wait for notifications from the Poller
